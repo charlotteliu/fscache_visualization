@@ -26,3 +26,54 @@ def test_size_parser_supports_commas_and_binary_units():
     assert parse_size("1,024", "KB") == 1024 * 1024
     assert parse_size("1.5", "GiB") == int(1.5 * 1024**3)
     assert human_size(1536) == "1.5 KB"
+
+
+def test_parse_ascii_plus_tree_with_windows_root_and_byte_sizes():
+    root = parse_tree_text(
+        r"D:\hm_test\文件页负载分析\trace工具\sceneboard\SceneBoard\n"
+        r"+-- ets/\n"
+        r"    +-- .vscode/\n"
+        r"        +-- ut/\n"
+        r"        |-- settings.json  [46 B]\n"
+        r"        |-- tags-34.wecode-db  [132.00 KB]\n"
+        r"        |-- tags-34.wecode-lock  [4.00 KB]\n"
+        r"    +-- common/\n"
+        r"        +-- animation/\n"
+        r"            |-- appear.json  [1.64 KB]\n"
+    )
+
+    rows = {row["path"]: row for row in flatten_tree(root)}
+    root_path = r"D:\hm_test\文件页负载分析\trace工具\sceneboard\SceneBoard"
+
+    assert root.name == root_path
+    assert rows[f"{root_path}/ets/.vscode/settings.json"]["size_bytes"] == 46
+    assert (
+        rows[f"{root_path}/ets/.vscode/tags-34.wecode-db"]["size_bytes"]
+        == 132 * 1024
+    )
+    assert (
+        rows[f"{root_path}/ets/.vscode/tags-34.wecode-lock"]["size_bytes"]
+        == 4 * 1024
+    )
+    assert rows[f"{root_path}/ets/common/animation/appear.json"][
+        "size_bytes"
+    ] == int(1.64 * 1024)
+    assert rows[f"{root_path}/ets/.vscode/ut"]["kind"] == "Folder"
+    assert (
+        rows[f"{root_path}/ets/.vscode"]["size_bytes"]
+        == 46 + 132 * 1024 + 4 * 1024
+    )
+
+
+def test_parse_ascii_plus_tree_with_actual_newlines():
+    root = parse_tree_text(
+        """D:\\root
++-- ets/
+    +-- common/
+        |-- icon.png  [6.63 KB]
+"""
+    )
+
+    rows = {row["path"]: row for row in flatten_tree(root)}
+
+    assert rows[r"D:\root/ets/common/icon.png"]["size_bytes"] == int(6.63 * 1024)
