@@ -19,6 +19,11 @@ SIZE_UNITS = {
     "tib": 1024**4,
 }
 
+TREE_MARKER_RE = re.compile(
+    r"(?P<indent>.*?)(?P<marker>├──|└──|┣━━|┗━━|\+--|\|--|`--|╰──|╭──)"
+    r"\s*(?P<content>.*)"
+)
+
 
 @dataclass
 class TreeNode:
@@ -48,15 +53,50 @@ def parse_size(value: str | None, unit: str | None) -> int | None:
     return int(float(value.replace(",", "")) * multiplier)
 
 
+def normalize_tree_text(text: str) -> str:
+    """Normalize common pasted tree text before parsing."""
+    if "\\n" in text:
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _depth_from_marker_prefix(indent: str) -> int:
+    """Infer tree depth from the characters before a tree branch marker."""
+    expanded = indent.expandtabs(4)
+    if not expanded:
+        return 1
+
+    # Common tree printers reserve four columns for each ancestor level:
+    # spaces, "│   ", "|   ", and similar vertical guide variants.
+    depth = 1
+    index = 0
+    while index < len(expanded):
+        char = expanded[index]
+        if char in " │|┃":
+            depth += 1
+            index += 4 if index + 4 <= len(expanded) else 1
+        else:
+            index += 1
+    return depth
+
+
 def clean_tree_name(raw_line: str) -> tuple[int, str]:
     """Return tree depth and node text from a common CLI-style tree line."""
+    line = raw_line.rstrip()
+    marker_match = TREE_MARKER_RE.match(line)
+    if marker_match:
+        return (
+            _depth_from_marker_prefix(marker_match.group("indent")),
+            marker_match.group("content").strip(),
+        )
+
     prefix_chars = set(" │├└─┬┼╰╭╮╯┃┣┗━+`|\\")
     index = 0
-    while index < len(raw_line) and raw_line[index] in prefix_chars:
+    while index < len(line) and line[index] in prefix_chars:
         index += 1
 
-    prefix = raw_line[:index]
-    content = raw_line[index:].strip()
+    prefix = line[:index]
+    content = line[index:].strip()
 
     if prefix:
         depth = max(0, len(prefix.replace("─", "")) // 4)
@@ -64,15 +104,15 @@ def clean_tree_name(raw_line: str) -> tuple[int, str]:
             depth += 1
         return depth, content
 
-    leading_spaces = len(raw_line) - len(raw_line.lstrip(" "))
+    leading_spaces = len(line) - len(line.lstrip(" "))
     return leading_spaces // 4, content
 
 
 def split_name_and_size(content: str) -> tuple[str, int | None]:
     patterns = [
-        r"^(?P<name>.+?)\s*[\(\[]\s*(?P<size>[\d,.]+)\s*(?P<unit>bytes?|[kmgt]i?b)\s*[\)\]]\s*$",
-        r"^(?P<name>.+?)\s{2,}(?P<size>[\d,.]+)\s*(?P<unit>bytes?|[kmgt]i?b)\s*$",
-        r"^(?P<name>.+?)\s+-\s+(?P<size>[\d,.]+)\s*(?P<unit>bytes?|[kmgt]i?b)\s*$",
+        r"^(?P<name>.+?)\s*[\(\[]\s*(?P<size>[\d,.]+)\s*(?P<unit>bytes?|b|[kmgt]i?b)\s*[\)\]]\s*$",
+        r"^(?P<name>.+?)\s{2,}(?P<size>[\d,.]+)\s*(?P<unit>bytes?|b|[kmgt]i?b)\s*$",
+        r"^(?P<name>.+?)\s+-\s+(?P<size>[\d,.]+)\s*(?P<unit>bytes?|b|[kmgt]i?b)\s*$",
     ]
     for pattern in patterns:
         match = re.match(pattern, content, flags=re.IGNORECASE)
@@ -86,10 +126,10 @@ def parse_tree_text(text: str) -> TreeNode:
     root = TreeNode("root", "")
     stack: list[TreeNode] = [root]
 
-    for raw_line in text.splitlines():
+    for raw_line in normalize_tree_text(text).splitlines():
         if not raw_line.strip():
             continue
-        depth, content = clean_tree_name(raw_line.rstrip())
+        depth, content = clean_tree_name(raw_line)
         if not content:
             continue
         name, explicit_size = split_name_and_size(content)
