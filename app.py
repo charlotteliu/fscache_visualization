@@ -4,6 +4,7 @@ from typing import Iterable
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from tree_parser import flatten_tree, human_size, parse_tree_text
@@ -35,29 +36,47 @@ SAMPLE_TREE = """project_root/
 """
 
 
+DEPTH_COLORS = [
+    "#0F172A",
+    "#1D4ED8",
+    "#0891B2",
+    "#16A34A",
+    "#CA8A04",
+    "#EA580C",
+    "#DC2626",
+    "#9333EA",
+    "#475569",
+]
+
+
 def calculate_depth(path: str) -> int:
     return path.count("/")
 
 
-def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treemap:
+def prepare_visualization_data(
+    rows: Iterable[dict[str, object]], max_depth: int
+) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df = df[df["size_bytes"] > 0].copy()
-    if max_depth:
-        root_depth = int(df["path"].str.count("/").min())
-        df = df[df["path"].apply(calculate_depth) <= root_depth + max_depth]
+    if df.empty:
+        df["depth"] = pd.Series(dtype="int")
+        df["depth_label"] = pd.Series(dtype="str")
+        return df
 
-    fig = px.treemap(
-        df,
-        ids="path",
-        names="name",
-        parents="parent",
-        values="size_bytes",
-        color="size_bytes",
-        color_continuous_scale=["#D7F3FF", "#61C4F2", "#246BFE", "#11376D"],
-        custom_data=["path", "size_label", "kind", "children"],
-    )
+    root_depth = int(df["path"].str.count("/").min())
+    df["depth"] = df["path"].apply(calculate_depth) - root_depth
+    df["depth_label"] = df["depth"].apply(lambda depth: f"第 {depth + 1} 层")
+
+    if max_depth:
+        df = df[df["depth"] <= max_depth]
+
+    return df
+
+
+def apply_chart_layout(fig: go.Figure) -> go.Figure:
     fig.update_traces(
-        texttemplate="<b>%{label}</b><br>%{customdata[1]}",
+        texttemplate="<b>%{label}</b><br><span>%{customdata[1]}</span>",
+        textfont=dict(size=18, color="#F8FAFC"),
         hovertemplate=(
             "<b>%{label}</b><br>"
             "Path: %{customdata[0]}<br>"
@@ -65,16 +84,58 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
             "Size: %{customdata[1]}<br>"
             "Children: %{customdata[3]}<extra></extra>"
         ),
-        marker=dict(cornerradius=6),
+        marker=dict(line=dict(color="rgba(255,255,255,.92)", width=2)),
+    )
+    fig.update_traces(
+        selector=dict(type="treemap"),
+        marker=dict(
+            cornerradius=7,
+            line=dict(color="rgba(255,255,255,.92)", width=2),
+        ),
+        tiling=dict(pad=4),
     )
     fig.update_layout(
         margin=dict(t=8, l=8, r=8, b=8),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        coloraxis_showscale=False,
+        uniformtext=dict(minsize=15, mode="show"),
         height=680,
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
     )
     return fig
+
+
+def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> go.Figure:
+    df = prepare_visualization_data(rows, max_depth)
+
+    fig = px.treemap(
+        df,
+        ids="path",
+        names="name",
+        parents="parent",
+        values="size_bytes",
+        color="depth_label",
+        color_discrete_sequence=DEPTH_COLORS,
+        custom_data=["path", "size_label", "kind", "children"],
+    )
+    return apply_chart_layout(fig)
+
+
+def build_tree_chart(rows: Iterable[dict[str, object]], max_depth: int) -> go.Figure:
+    df = prepare_visualization_data(rows, max_depth)
+
+    fig = px.icicle(
+        df,
+        ids="path",
+        names="name",
+        parents="parent",
+        values="size_bytes",
+        color="depth_label",
+        color_discrete_sequence=DEPTH_COLORS,
+        custom_data=["path", "size_label", "kind", "children"],
+    )
+    fig.update_traces(root_color="#E2E8F0")
+    return apply_chart_layout(fig)
 
 
 def render_styles() -> None:
@@ -126,6 +187,22 @@ def main() -> None:
         st.header("输入与显示")
         use_sample = st.toggle("使用示例数据", value=True)
         max_depth = st.slider("可视化层级深度", min_value=1, max_value=8, value=6)
+        if "chart_mode" not in st.session_state:
+            st.session_state.chart_mode = "treemap"
+        st.caption("视图切换")
+        mode_cols = st.columns(2)
+        if mode_cols[0].button(
+            "块状图",
+            use_container_width=True,
+            type="primary" if st.session_state.chart_mode == "treemap" else "secondary",
+        ):
+            st.session_state.chart_mode = "treemap"
+        if mode_cols[1].button(
+            "树状图",
+            use_container_width=True,
+            type="primary" if st.session_state.chart_mode == "tree" else "secondary",
+        ):
+            st.session_state.chart_mode = "tree"
         st.caption("支持 `├── file  12 MB`、`file - 12 MB`、`file (12 MB)` 等格式。")
 
     default_text = SAMPLE_TREE if use_sample else ""
@@ -161,8 +238,14 @@ def main() -> None:
                 unsafe_allow_html=True,
             )
 
-    st.subheader("文件块状图")
-    st.plotly_chart(build_treemap(rows, max_depth), use_container_width=True, config={"displaylogo": False})
+    chart_mode = st.session_state.get("chart_mode", "treemap")
+    if chart_mode == "tree":
+        st.subheader("文件树状图")
+        figure = build_tree_chart(rows, max_depth)
+    else:
+        st.subheader("文件块状图")
+        figure = build_treemap(rows, max_depth)
+    st.plotly_chart(figure, use_container_width=True, config={"displaylogo": False})
 
     left, right = st.columns([1.1, 0.9])
     with left:
