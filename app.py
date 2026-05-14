@@ -4,6 +4,7 @@ from typing import Iterable
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from tree_parser import flatten_tree, human_size, parse_tree_text
@@ -35,16 +36,135 @@ SAMPLE_TREE = """project_root/
 """
 
 
+SIZE_COLOR_SCALE = ["#D7F3FF", "#61C4F2", "#246BFE", "#11376D"]
+DEPTH_COLORS = [
+    "#2563EB",
+    "#0891B2",
+    "#16A34A",
+    "#CA8A04",
+    "#EA580C",
+    "#DC2626",
+    "#9333EA",
+    "#475569",
+]
+TEXT_COLOR = "#F8FAFC"
+BORDER_COLOR = "rgba(255, 255, 255, .92)"
+
+
 def calculate_depth(path: str) -> int:
     return path.count("/")
 
 
-def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treemap:
+def truncate_label(label: str, max_chars: int) -> str:
+    if len(label) <= max_chars:
+        return label
+    return f"{label[: max(max_chars - 1, 1)]}…"
+
+
+def calculate_label_budget(depth: int, size_share: float) -> int:
+    base_budget = max(12, 32 - depth * 2)
+    if size_share >= 0.25:
+        return base_budget + 12
+    if size_share >= 0.08:
+        return base_budget + 6
+    if size_share >= 0.03:
+        return base_budget
+    return max(10, base_budget - 6)
+
+
+def calculate_font_size(label: str, depth: int, size_share: float) -> int:
+    size = max(14, 19 - depth)
+    if size_share < 0.015:
+        size = min(size, 12)
+    elif size_share < 0.04:
+        size = min(size, 13)
+    elif size_share < 0.1:
+        size = min(size, 15)
+
+    if len(label) > 42:
+        size = min(size, 13)
+    elif len(label) > 28:
+        size = min(size, 15)
+
+    return size
+
+
+def prepare_visualization_data(
+    rows: Iterable[dict[str, object]], max_depth: int
+) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df = df[df["size_bytes"] > 0].copy()
+    if df.empty:
+        df["depth"] = pd.Series(dtype="int")
+        df["depth_label"] = pd.Series(dtype="str")
+        df["size_share"] = pd.Series(dtype="float")
+        df["display_name"] = pd.Series(dtype="str")
+        df["font_size"] = pd.Series(dtype="int")
+        df["text_color"] = pd.Series(dtype="str")
+        return df
+
+    root_depth = int(df["path"].str.count("/").min())
+    total_size = float(df["size_bytes"].max())
+    df["depth"] = df["path"].apply(calculate_depth) - root_depth
+    df["depth_label"] = df["depth"].apply(lambda depth: f"第 {depth + 1} 层")
+    df["size_share"] = df["size_bytes"].apply(lambda size: float(size) / total_size)
+    df["display_name"] = df.apply(
+        lambda row: truncate_label(
+            str(row["name"]), calculate_label_budget(int(row["depth"]), row["size_share"])
+        ),
+        axis=1,
+    )
+    df["font_size"] = df.apply(
+        lambda row: calculate_font_size(
+            str(row["name"]), int(row["depth"]), row["size_share"]
+        ),
+        axis=1,
+    )
+    df["text_color"] = df["size_share"].apply(
+        lambda share: TEXT_COLOR if share >= 0.18 else "#0F172A"
+    )
+
     if max_depth:
-        root_depth = int(df["path"].str.count("/").min())
-        df = df[df["path"].apply(calculate_depth) <= root_depth + max_depth]
+        df = df[df["depth"] <= max_depth]
+
+    return df
+
+
+def apply_chart_layout(
+    fig: go.Figure, font_sizes: Iterable[int], font_colors: Iterable[str] | str
+) -> go.Figure:
+    fig.update_traces(
+        texttemplate="<b>%{customdata[4]}</b><br><span>%{customdata[1]}</span>",
+        textfont=dict(size=list(font_sizes), color=font_colors),
+        hovertemplate=(
+            "<b>%{label}</b><br>"
+            "Path: %{customdata[0]}<br>"
+            "Type: %{customdata[2]}<br>"
+            "Size: %{customdata[1]}<br>"
+            "Children: %{customdata[3]}<extra></extra>"
+        ),
+        marker=dict(line=dict(color=BORDER_COLOR, width=1)),
+    )
+    fig.update_traces(
+        selector=dict(type="treemap"),
+        marker=dict(
+            cornerradius=7,
+            line=dict(color=BORDER_COLOR, width=1),
+        ),
+        tiling=dict(pad=4),
+    )
+    fig.update_layout(
+        margin=dict(t=8, l=8, r=8, b=8),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        uniformtext=dict(minsize=11, mode="hide"),
+        height=680,
+    )
+    return fig
+
+
+def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> go.Figure:
+    df = prepare_visualization_data(rows, max_depth)
 
     fig = px.treemap(
         df,
@@ -53,28 +173,28 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
         parents="parent",
         values="size_bytes",
         color="size_bytes",
-        color_continuous_scale=["#D7F3FF", "#61C4F2", "#246BFE", "#11376D"],
-        custom_data=["path", "size_label", "kind", "children"],
+        color_continuous_scale=SIZE_COLOR_SCALE,
+        custom_data=["path", "size_label", "kind", "children", "display_name"],
     )
-    fig.update_traces(
-        texttemplate="<b>%{label}</b><br>%{customdata[1]}",
-        hovertemplate=(
-            "<b>%{label}</b><br>"
-            "Path: %{customdata[0]}<br>"
-            "Type: %{customdata[2]}<br>"
-            "Size: %{customdata[1]}<br>"
-            "Children: %{customdata[3]}<extra></extra>"
-        ),
-        marker=dict(cornerradius=6),
+    fig.update_layout(coloraxis_showscale=False)
+    return apply_chart_layout(fig, df["font_size"], df["text_color"].tolist())
+
+
+def build_tree_chart(rows: Iterable[dict[str, object]], max_depth: int) -> go.Figure:
+    df = prepare_visualization_data(rows, max_depth)
+
+    fig = px.icicle(
+        df,
+        ids="path",
+        names="name",
+        parents="parent",
+        values="size_bytes",
+        color="depth_label",
+        color_discrete_sequence=DEPTH_COLORS,
+        custom_data=["path", "size_label", "kind", "children", "display_name"],
     )
-    fig.update_layout(
-        margin=dict(t=8, l=8, r=8, b=8),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        coloraxis_showscale=False,
-        height=680,
-    )
-    return fig
+    fig.update_traces(root_color="#0F172A")
+    return apply_chart_layout(fig, df["font_size"], TEXT_COLOR)
 
 
 def render_styles() -> None:
@@ -126,6 +246,22 @@ def main() -> None:
         st.header("输入与显示")
         use_sample = st.toggle("使用示例数据", value=True)
         max_depth = st.slider("可视化层级深度", min_value=1, max_value=8, value=6)
+        if "chart_mode" not in st.session_state:
+            st.session_state.chart_mode = "treemap"
+        st.caption("视图切换")
+        mode_cols = st.columns(2)
+        if mode_cols[0].button(
+            "块状图",
+            use_container_width=True,
+            type="primary" if st.session_state.chart_mode == "treemap" else "secondary",
+        ):
+            st.session_state.chart_mode = "treemap"
+        if mode_cols[1].button(
+            "树状图",
+            use_container_width=True,
+            type="primary" if st.session_state.chart_mode == "tree" else "secondary",
+        ):
+            st.session_state.chart_mode = "tree"
         st.caption("支持 `├── file  12 MB`、`file - 12 MB`、`file (12 MB)` 等格式。")
 
     default_text = SAMPLE_TREE if use_sample else ""
@@ -161,8 +297,14 @@ def main() -> None:
                 unsafe_allow_html=True,
             )
 
-    st.subheader("文件块状图")
-    st.plotly_chart(build_treemap(rows, max_depth), use_container_width=True, config={"displaylogo": False})
+    chart_mode = st.session_state.get("chart_mode", "treemap")
+    if chart_mode == "tree":
+        st.subheader("文件树状图")
+        figure = build_tree_chart(rows, max_depth)
+    else:
+        st.subheader("文件块状图")
+        figure = build_treemap(rows, max_depth)
+    st.plotly_chart(figure, use_container_width=True, config={"displaylogo": False})
 
     left, right = st.columns([1.1, 0.9])
     with left:
