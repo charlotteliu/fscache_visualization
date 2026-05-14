@@ -1,4 +1,5 @@
 from app import (
+    SIZE_COLOR_SCALE,
     TEXT_COLOR,
     build_tree_chart,
     build_treemap,
@@ -43,7 +44,7 @@ def test_prepare_visualization_data_truncates_long_labels_and_scales_font():
     assert long_file["font_size"] < root_row["font_size"]
 
 
-def test_build_visualizations_use_readable_text_and_depth_colors():
+def test_build_visualizations_keep_original_treemap_palette_with_readable_text():
     rows = sample_rows()
 
     treemap = build_treemap(rows, max_depth=6)
@@ -51,7 +52,10 @@ def test_build_visualizations_use_readable_text_and_depth_colors():
 
     assert treemap.data[0].type == "treemap"
     assert tree_chart.data[0].type == "icicle"
-    assert treemap.data[0].textfont.color == TEXT_COLOR
+    assert treemap.layout.coloraxis.colorscale[0][1] == SIZE_COLOR_SCALE[0]
+    assert treemap.layout.coloraxis.colorscale[-1][1] == SIZE_COLOR_SCALE[-1]
+    assert isinstance(treemap.data[0].textfont.color, tuple)
+    assert TEXT_COLOR in treemap.data[0].textfont.color
     assert tree_chart.data[0].textfont.color == TEXT_COLOR
     assert len(set(treemap.data[0].textfont.size)) > 1
-    assert min(treemap.data[0].textfont.size) >= 10
+    assert min(treemap.data[0].textfont.size) >= 11

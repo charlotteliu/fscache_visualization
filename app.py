@@ -36,19 +36,19 @@ SAMPLE_TREE = """project_root/
 """
 
 
+SIZE_COLOR_SCALE = ["#D7F3FF", "#61C4F2", "#246BFE", "#11376D"]
 DEPTH_COLORS = [
-    "#DBEAFE",
-    "#DCFCE7",
-    "#FEF3C7",
-    "#FCE7F3",
-    "#EDE9FE",
-    "#CCFBF1",
-    "#FFEDD5",
-    "#E0F2FE",
-    "#F1F5F9",
+    "#2563EB",
+    "#0891B2",
+    "#16A34A",
+    "#CA8A04",
+    "#EA580C",
+    "#DC2626",
+    "#9333EA",
+    "#475569",
 ]
-TEXT_COLOR = "#0F172A"
-BORDER_COLOR = "rgba(15, 23, 42, .5)"
+TEXT_COLOR = "#F8FAFC"
+BORDER_COLOR = "rgba(255, 255, 255, .92)"
 
 
 def calculate_depth(path: str) -> int:
@@ -62,29 +62,29 @@ def truncate_label(label: str, max_chars: int) -> str:
 
 
 def calculate_label_budget(depth: int, size_share: float) -> int:
-    base_budget = max(14, 34 - depth * 3)
+    base_budget = max(12, 32 - depth * 2)
     if size_share >= 0.25:
         return base_budget + 12
     if size_share >= 0.08:
-        return base_budget + 5
+        return base_budget + 6
     if size_share >= 0.03:
         return base_budget
-    return max(8, base_budget - 8)
+    return max(10, base_budget - 6)
 
 
 def calculate_font_size(label: str, depth: int, size_share: float) -> int:
-    size = max(13, 22 - depth * 2)
+    size = max(14, 19 - depth)
     if size_share < 0.015:
-        size = min(size, 11)
-    elif size_share < 0.04:
         size = min(size, 12)
+    elif size_share < 0.04:
+        size = min(size, 13)
     elif size_share < 0.1:
-        size = min(size, 14)
+        size = min(size, 15)
 
     if len(label) > 42:
-        size = min(size, 12)
+        size = min(size, 13)
     elif len(label) > 28:
-        size = min(size, 14)
+        size = min(size, 15)
 
     return size
 
@@ -100,6 +100,7 @@ def prepare_visualization_data(
         df["size_share"] = pd.Series(dtype="float")
         df["display_name"] = pd.Series(dtype="str")
         df["font_size"] = pd.Series(dtype="int")
+        df["text_color"] = pd.Series(dtype="str")
         return df
 
     root_depth = int(df["path"].str.count("/").min())
@@ -119,6 +120,9 @@ def prepare_visualization_data(
         ),
         axis=1,
     )
+    df["text_color"] = df["size_share"].apply(
+        lambda share: TEXT_COLOR if share >= 0.18 else "#0F172A"
+    )
 
     if max_depth:
         df = df[df["depth"] <= max_depth]
@@ -126,10 +130,12 @@ def prepare_visualization_data(
     return df
 
 
-def apply_chart_layout(fig: go.Figure, font_sizes: Iterable[int]) -> go.Figure:
+def apply_chart_layout(
+    fig: go.Figure, font_sizes: Iterable[int], font_colors: Iterable[str] | str
+) -> go.Figure:
     fig.update_traces(
         texttemplate="<b>%{customdata[4]}</b><br><span>%{customdata[1]}</span>",
-        textfont=dict(size=list(font_sizes), color=TEXT_COLOR),
+        textfont=dict(size=list(font_sizes), color=font_colors),
         hovertemplate=(
             "<b>%{label}</b><br>"
             "Path: %{customdata[0]}<br>"
@@ -137,13 +143,13 @@ def apply_chart_layout(fig: go.Figure, font_sizes: Iterable[int]) -> go.Figure:
             "Size: %{customdata[1]}<br>"
             "Children: %{customdata[3]}<extra></extra>"
         ),
-        marker=dict(line=dict(color=BORDER_COLOR, width=1.5)),
+        marker=dict(line=dict(color=BORDER_COLOR, width=1)),
     )
     fig.update_traces(
         selector=dict(type="treemap"),
         marker=dict(
             cornerradius=7,
-            line=dict(color=BORDER_COLOR, width=1.5),
+            line=dict(color=BORDER_COLOR, width=1),
         ),
         tiling=dict(pad=4),
     )
@@ -151,9 +157,8 @@ def apply_chart_layout(fig: go.Figure, font_sizes: Iterable[int]) -> go.Figure:
         margin=dict(t=8, l=8, r=8, b=8),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        uniformtext=dict(minsize=10, mode="hide"),
+        uniformtext=dict(minsize=11, mode="hide"),
         height=680,
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
     )
     return fig
 
@@ -167,11 +172,12 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> go.Figur
         names="name",
         parents="parent",
         values="size_bytes",
-        color="depth_label",
-        color_discrete_sequence=DEPTH_COLORS,
+        color="size_bytes",
+        color_continuous_scale=SIZE_COLOR_SCALE,
         custom_data=["path", "size_label", "kind", "children", "display_name"],
     )
-    return apply_chart_layout(fig, df["font_size"])
+    fig.update_layout(coloraxis_showscale=False)
+    return apply_chart_layout(fig, df["font_size"], df["text_color"].tolist())
 
 
 def build_tree_chart(rows: Iterable[dict[str, object]], max_depth: int) -> go.Figure:
@@ -187,8 +193,8 @@ def build_tree_chart(rows: Iterable[dict[str, object]], max_depth: int) -> go.Fi
         color_discrete_sequence=DEPTH_COLORS,
         custom_data=["path", "size_label", "kind", "children", "display_name"],
     )
-    fig.update_traces(root_color="#F8FAFC")
-    return apply_chart_layout(fig, df["font_size"])
+    fig.update_traces(root_color="#0F172A")
+    return apply_chart_layout(fig, df["font_size"], TEXT_COLOR)
 
 
 def render_styles() -> None:
