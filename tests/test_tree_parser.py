@@ -1,4 +1,10 @@
-from tree_parser import flatten_tree, human_size, parse_size, parse_tree_text
+from tree_parser import (
+    flatten_tree,
+    human_size,
+    is_cold_page_csv_text,
+    parse_size,
+    parse_tree_text,
+)
 
 
 def test_parse_tree_text_rolls_up_folder_sizes():
@@ -77,3 +83,36 @@ def test_parse_ascii_plus_tree_with_actual_newlines():
     rows = {row["path"]: row for row in flatten_tree(root)}
 
     assert rows[r"D:\root/ets/common/icon.png"]["size_bytes"] == int(6.63 * 1024)
+
+
+def test_parse_cold_page_csv_with_package_hierarchy_and_repeated_header():
+    root = parse_tree_text(
+        """名称,冷页数,内存大小 (KB)
+/pkgContextInfo.json:other,1,4
+/resources.index:other,180,720
+ets,9136,36544
+ets/modules.abc,4568,18272
+ets/modules.abc:ohos,4361,17444
+ets/modules.abc:ohos.launchercommon,475,1900
+ets/modules.abc:ohos.launchercommon.src,475,1900
+名称,冷页数,内存大小 (KB)
+ets/modules.abc:ohos.launchercommon.src,475,1900
+"""
+    )
+
+    rows = {row["path"]: row for row in flatten_tree(root)}
+
+    assert is_cold_page_csv_text("名称,冷页数,内存大小 (KB)\nets,9136,36544")
+    assert root.name == "SceneBoard.hap"
+    assert rows["SceneBoard.hap/ets"]["size_bytes"] == 36544 * 1024
+    assert rows["SceneBoard.hap/ets"]["cold_pages"] == 9136
+    assert rows["SceneBoard.hap/ets/modules.abc"]["size_bytes"] == 18272 * 1024
+    assert rows["SceneBoard.hap/ets/modules.abc/ohos"]["size_bytes"] == 17444 * 1024
+    assert rows["SceneBoard.hap/ets/modules.abc/ohos/launchercommon"][
+        "size_bytes"
+    ] == 1900 * 1024
+    assert rows["SceneBoard.hap/ets/modules.abc/ohos/launchercommon/src"][
+        "size_bytes"
+    ] == 1900 * 1024
+    assert rows["SceneBoard.hap/pkgContextInfo.json/other"]["size_bytes"] == 4 * 1024
+    assert rows["SceneBoard.hap/resources.index/other"]["size_bytes"] == 720 * 1024

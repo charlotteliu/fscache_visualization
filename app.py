@@ -54,7 +54,7 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
         values="size_bytes",
         color="size_bytes",
         color_continuous_scale=["#D7F3FF", "#61C4F2", "#246BFE", "#11376D"],
-        custom_data=["path", "size_label", "kind", "children"],
+        custom_data=["path", "size_label", "kind", "children", "cold_pages"],
     )
     fig.update_traces(
         texttemplate="<b>%{label}</b><br>%{customdata[1]}",
@@ -63,6 +63,7 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
             "Path: %{customdata[0]}<br>"
             "Type: %{customdata[2]}<br>"
             "Size: %{customdata[1]}<br>"
+            "Cold pages: %{customdata[4]}<br>"
             "Children: %{customdata[3]}<extra></extra>"
         ),
         marker=dict(cornerradius=6),
@@ -126,18 +127,25 @@ def main() -> None:
         st.header("输入与显示")
         use_sample = st.toggle("使用示例数据", value=True)
         max_depth = st.slider("可视化层级深度", min_value=1, max_value=8, value=6)
-        st.caption("支持 `├── file  12 MB`、`file - 12 MB`、`file (12 MB)` 等格式。")
+        st.caption(
+            "支持 tree 文本，以及 `名称,冷页数,内存大小 (KB)` 冷页 CSV；"
+            "CSV 名称列可包含 `path:pkg.subpkg` 代码包层级。"
+        )
 
     default_text = SAMPLE_TREE if use_sample else ""
     tree_text = st.text_area(
-        "文件夹树状文本",
+        "文件夹树状文本或冷页 CSV",
         value=default_text,
         height=300,
-        placeholder="粘贴 tree 命令输出，例如：\nroot/\n├── data/\n│   └── cache.db  128 MB\n└── README.md  24 KB",
+        placeholder=(
+            "粘贴 tree 命令输出，例如：\nroot/\n├── data/\n"
+            "│   └── cache.db  128 MB\n└── README.md  24 KB\n\n"
+            "或冷页 CSV：\n名称,冷页数,内存大小 (KB)\nets/modules.abc:ohos.launchercommon.src,475,1900"
+        ),
     )
 
     if not tree_text.strip():
-        st.info("请在上方输入文件夹树状文本，或打开侧边栏中的示例数据。")
+        st.info("请在上方输入文件夹树状文本或冷页 CSV，或打开侧边栏中的示例数据。")
         return
 
     root = parse_tree_text(tree_text)
@@ -147,13 +155,32 @@ def main() -> None:
     folders = data[data["kind"] == "Folder"].copy()
     total_size = int(root.total_size())
 
-    metric_cols = st.columns(4)
+    has_cold_pages = "cold_pages" in data.columns and data["cold_pages"].notna().any()
+    metric_cols = st.columns(5 if has_cold_pages else 4)
     metric_values = [
         ("总占用", human_size(total_size), "当前输入树的累计文件大小"),
         ("文件数", f"{len(files):,}", "含大小的叶子节点"),
         ("文件夹数", f"{max(len(folders) - 1, 0):,}", "不含虚拟根节点"),
-        ("最大文件", files.sort_values("size_bytes", ascending=False).iloc[0]["size_label"] if not files.empty else "0 B", "单个文件峰值"),
+        (
+            "最大文件",
+            files.sort_values("size_bytes", ascending=False).iloc[0]["size_label"]
+            if not files.empty
+            else "0 B",
+            "单个文件峰值",
+        ),
     ]
+    if has_cold_pages:
+        top_level_cold_pages = data.loc[
+            data["parent"] == root.path, "cold_pages"
+        ].fillna(0)
+        metric_values.insert(
+            1,
+            (
+                "总冷页",
+                f"{int(root.cold_pages or top_level_cold_pages.sum()):,}",
+                "CSV 输入中的冷页数",
+            ),
+        )
     for col, (label, value, help_text) in zip(metric_cols, metric_values):
         with col:
             st.markdown(
@@ -171,25 +198,41 @@ def main() -> None:
             st.warning("没有解析到带 size 的文件。请检查输入格式。")
         else:
             top_files = files.sort_values("size_bytes", ascending=False).head(20)
+            top_columns = ["name", "path", "size_label", "size_bytes"]
+            column_config = {
+                "name": "文件名",
+                "path": "路径",
+                "size_label": "大小",
+                "size_bytes": st.column_config.NumberColumn("字节", format="%d"),
+            }
+            if has_cold_pages:
+                top_columns.insert(3, "cold_pages")
+                column_config["cold_pages"] = st.column_config.NumberColumn(
+                    "冷页数", format="%d"
+                )
             st.dataframe(
-                top_files[["name", "path", "size_label", "size_bytes"]],
+                top_files[top_columns],
                 use_container_width=True,
                 hide_index=True,
-                column_config={
-                    "name": "文件名",
-                    "path": "路径",
-                    "size_label": "大小",
-                    "size_bytes": st.column_config.NumberColumn("字节", format="%d"),
-                },
+                column_config=column_config,
             )
     with right:
         st.subheader("目录占用排行")
-        folder_rank = folders[folders["parent"] != ""].sort_values("size_bytes", ascending=False).head(12)
+        folder_rank = (
+            folders[folders["parent"] != ""]
+            .sort_values("size_bytes", ascending=False)
+            .head(12)
+        )
         st.dataframe(
             folder_rank[["name", "path", "size_label", "children"]],
             use_container_width=True,
             hide_index=True,
-            column_config={"name": "目录", "path": "路径", "size_label": "累计大小", "children": "直接子项"},
+            column_config={
+                "name": "目录",
+                "path": "路径",
+                "size_label": "累计大小",
+                "children": "直接子项",
+            },
         )
 
 
