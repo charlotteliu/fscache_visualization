@@ -2,15 +2,13 @@ from tree_parser import flatten_tree, human_size, parse_size, parse_tree_text
 
 
 def test_parse_tree_text_rolls_up_folder_sizes():
-    root = parse_tree_text(
-        """root/
+    root = parse_tree_text("""root/
 ├── src/
 │   ├── app.py  1 MB
 │   └── parser.py (512 KB)
 └── data/
     └── cache.db - 2 GB
-"""
-    )
+""")
 
     rows = {row["path"]: row for row in flatten_tree(root)}
 
@@ -48,32 +46,64 @@ def test_parse_ascii_plus_tree_with_windows_root_and_byte_sizes():
     assert root.name == root_path
     assert rows[f"{root_path}/ets/.vscode/settings.json"]["size_bytes"] == 46
     assert (
-        rows[f"{root_path}/ets/.vscode/tags-34.wecode-db"]["size_bytes"]
-        == 132 * 1024
+        rows[f"{root_path}/ets/.vscode/tags-34.wecode-db"]["size_bytes"] == 132 * 1024
     )
     assert (
-        rows[f"{root_path}/ets/.vscode/tags-34.wecode-lock"]["size_bytes"]
-        == 4 * 1024
+        rows[f"{root_path}/ets/.vscode/tags-34.wecode-lock"]["size_bytes"] == 4 * 1024
     )
-    assert rows[f"{root_path}/ets/common/animation/appear.json"][
-        "size_bytes"
-    ] == int(1.64 * 1024)
+    assert rows[f"{root_path}/ets/common/animation/appear.json"]["size_bytes"] == int(
+        1.64 * 1024
+    )
     assert rows[f"{root_path}/ets/.vscode/ut"]["kind"] == "Folder"
-    assert (
-        rows[f"{root_path}/ets/.vscode"]["size_bytes"]
-        == 46 + 132 * 1024 + 4 * 1024
-    )
+    assert rows[f"{root_path}/ets/.vscode"]["size_bytes"] == 46 + 132 * 1024 + 4 * 1024
 
 
 def test_parse_ascii_plus_tree_with_actual_newlines():
-    root = parse_tree_text(
-        """D:\\root
+    root = parse_tree_text("""D:\\root
 +-- ets/
     +-- common/
         |-- icon.png  [6.63 KB]
-"""
-    )
+""")
 
     rows = {row["path"]: row for row in flatten_tree(root)}
 
     assert rows[r"D:\root/ets/common/icon.png"]["size_bytes"] == int(6.63 * 1024)
+
+
+def test_parse_cold_page_csv_expands_file_package_and_class_hierarchy():
+    from tree_parser import parse_cold_page_csv, parse_input_text
+
+    root = parse_input_text("""名称,冷页数,内存大小 (KB)
+ets,9321,37284
+ets/modules.abc,9321,37284
+ets/modules.abc:hms-ai.Constants,,0
+ets/modules.abc:hms-ai.pdkfull.src.main.ets.utils.ResCode,,4
+pkgContextInfo.json,1,4
+resources.index,180,720
+""")
+
+    rows = {row["path"]: row for row in flatten_tree(root)}
+
+    assert root.name == "root"
+    assert rows["ets"]["cold_pages"] == 9321
+    assert rows["ets"]["size_kb"] == 37284
+    assert rows["ets/modules.abc"]["kind"] == "ABC File"
+    assert rows["ets/modules.abc"]["cold_pages"] == 9321
+    assert (
+        rows["ets/modules.abc/hms-ai/pdkfull/src/main/ets/utils"]["kind"] == "Package"
+    )
+    assert (
+        rows["ets/modules.abc:hms-ai.pdkfull.src.main.ets.utils.ResCode"]["kind"]
+        == "Class"
+    )
+    assert (
+        rows["ets/modules.abc:hms-ai.pdkfull.src.main.ets.utils.ResCode"]["size_kb"]
+        == 4
+    )
+    assert rows["resources.index"]["cold_pages"] == 180
+    assert (
+        parse_cold_page_csv(
+            "名称,冷页数,内存大小 (KB)\nets/modules.abc,2,8"
+        ).total_size()
+        == 8 * 1024
+    )

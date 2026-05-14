@@ -6,8 +6,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from tree_parser import flatten_tree, human_size, parse_tree_text
-
+from tree_parser import flatten_tree, human_size, parse_input_text
 
 SAMPLE_TREE = """project_root/
 ├── src/
@@ -34,9 +33,29 @@ SAMPLE_TREE = """project_root/
 └── README.md  24 KB
 """
 
+SAMPLE_COLD_PAGE_CSV = """名称,冷页数,内存大小 (KB)
+ets,9321,37284
+ets/modules.abc,9321,37284
+ets/modules.abc:hms-ai.Constants,,0
+ets/modules.abc:hms-ai.GlobalContext,,1
+ets/modules.abc:hms-ai.ModuleInfo,,1
+ets/modules.abc:hms-ai.PluginInfoManager,,3
+ets/modules.abc:hms-ai.ResCode,,2
+ets/modules.abc:hms-ai.pdkfull.src.main.ets.ServiceAbilityBridge,,5
+ets/modules.abc:hms-ai.pdkfull.src.main.ets.abilityservice.information.PluginInfoManager,,7
+ets/modules.abc:hms-ai.pdkfull.src.main.ets.utils.GlobalContext,,2
+ets/modules.abc:hms-ai.pdkfull.src.main.ets.utils.ResCode,,4
+pkgContextInfo.json,1,4
+resources.index,180,720
+"""
+
 
 def calculate_depth(path: str) -> int:
-    return path.count("/")
+    slash_depth = path.count("/")
+    if ":" not in path:
+        return slash_depth
+    symbol_path = path.split(":", 1)[1]
+    return slash_depth + symbol_path.count(".") + 1
 
 
 def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treemap:
@@ -54,7 +73,7 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
         values="size_bytes",
         color="size_bytes",
         color_continuous_scale=["#D7F3FF", "#61C4F2", "#246BFE", "#11376D"],
-        custom_data=["path", "size_label", "kind", "children"],
+        custom_data=["path", "size_label", "kind", "children", "cold_pages", "size_kb"],
     )
     fig.update_traces(
         texttemplate="<b>%{label}</b><br>%{customdata[1]}",
@@ -63,6 +82,8 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
             "Path: %{customdata[0]}<br>"
             "Type: %{customdata[2]}<br>"
             "Size: %{customdata[1]}<br>"
+            "Cold pages: %{customdata[4]}<br>"
+            "Memory: %{customdata[5]} KB<br>"
             "Children: %{customdata[3]}<extra></extra>"
         ),
         marker=dict(cornerradius=6),
@@ -124,35 +145,71 @@ def main() -> None:
 
     with st.sidebar:
         st.header("输入与显示")
+        input_format_label = st.radio(
+            "输入格式",
+            ["自动识别", "文件树文本", "冷页 CSV"],
+            horizontal=False,
+        )
         use_sample = st.toggle("使用示例数据", value=True)
-        max_depth = st.slider("可视化层级深度", min_value=1, max_value=8, value=6)
-        st.caption("支持 `├── file  12 MB`、`file - 12 MB`、`file (12 MB)` 等格式。")
+        max_depth = st.slider("可视化层级深度", min_value=1, max_value=12, value=6)
+        st.caption(
+            "文件树支持 `├── file  12 MB`；冷页 CSV 支持 `名称,冷页数,内存大小 (KB)`，并将 `abc:包.类` 展开为包/类层级。"
+        )
 
-    default_text = SAMPLE_TREE if use_sample else ""
+    input_format_map = {
+        "自动识别": "auto",
+        "文件树文本": "tree",
+        "冷页 CSV": "cold_page_csv",
+    }
+    selected_format = input_format_map[input_format_label]
+    if use_sample and selected_format == "cold_page_csv":
+        default_text = SAMPLE_COLD_PAGE_CSV
+    elif use_sample:
+        default_text = SAMPLE_TREE
+    else:
+        default_text = ""
+
     tree_text = st.text_area(
-        "文件夹树状文本",
+        "输入内容",
         value=default_text,
         height=300,
-        placeholder="粘贴 tree 命令输出，例如：\nroot/\n├── data/\n│   └── cache.db  128 MB\n└── README.md  24 KB",
+        placeholder=(
+            "粘贴 tree 命令输出，或冷页 CSV：\n"
+            "名称,冷页数,内存大小 (KB)\n"
+            "ets/modules.abc,9321,37284\n"
+            "ets/modules.abc:hms-ai.utils.JsonUtil,,1"
+        ),
     )
 
     if not tree_text.strip():
-        st.info("请在上方输入文件夹树状文本，或打开侧边栏中的示例数据。")
+        st.info("请在上方输入文件夹树状文本或冷页 CSV，或打开侧边栏中的示例数据。")
         return
 
-    root = parse_tree_text(tree_text)
+    root = parse_input_text(tree_text, selected_format)
     rows = flatten_tree(root)
     data = pd.DataFrame(rows)
-    files = data[data["kind"] == "File"].copy()
-    folders = data[data["kind"] == "Folder"].copy()
+    files = data[data["kind"].isin(["File", "ABC File", "Class"])].copy()
+    folders = data[~data["kind"].isin(["File", "Class"])].copy()
     total_size = int(root.total_size())
 
     metric_cols = st.columns(4)
     metric_values = [
-        ("总占用", human_size(total_size), "当前输入树的累计文件大小"),
-        ("文件数", f"{len(files):,}", "含大小的叶子节点"),
-        ("文件夹数", f"{max(len(folders) - 1, 0):,}", "不含虚拟根节点"),
-        ("最大文件", files.sort_values("size_bytes", ascending=False).iloc[0]["size_label"] if not files.empty else "0 B", "单个文件峰值"),
+        ("总占用", human_size(total_size), "当前输入树或冷页 CSV 的累计内存大小"),
+        (
+            "冷页数",
+            f"{int(root.total_cold_pages()):,}",
+            "CSV 中的冷页累计；文件树输入为 0",
+        ),
+        ("节点数", f"{len(data):,}", "文件、包、类和目录节点总数"),
+        (
+            "最大文件",
+            (
+                files.sort_values("size_bytes", ascending=False).iloc[0]["size_label"]
+                if not files.empty
+                else "0 B"
+            ),
+            "单个文件峰值",
+        ),
     ]
     for col, (label, value, help_text) in zip(metric_cols, metric_values):
         with col:
@@ -162,34 +219,66 @@ def main() -> None:
             )
 
     st.subheader("文件块状图")
-    st.plotly_chart(build_treemap(rows, max_depth), use_container_width=True, config={"displaylogo": False})
+    st.plotly_chart(
+        build_treemap(rows, max_depth),
+        use_container_width=True,
+        config={"displaylogo": False},
+    )
 
     left, right = st.columns([1.1, 0.9])
     with left:
-        st.subheader("Top 大文件")
+        st.subheader("Top 文件 / 类")
         if files.empty:
             st.warning("没有解析到带 size 的文件。请检查输入格式。")
         else:
             top_files = files.sort_values("size_bytes", ascending=False).head(20)
             st.dataframe(
-                top_files[["name", "path", "size_label", "size_bytes"]],
+                top_files[
+                    [
+                        "name",
+                        "path",
+                        "kind",
+                        "cold_pages",
+                        "size_label",
+                        "size_kb",
+                        "size_bytes",
+                    ]
+                ],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
                     "name": "文件名",
                     "path": "路径",
+                    "kind": "类型",
+                    "cold_pages": st.column_config.NumberColumn("冷页数", format="%d"),
                     "size_label": "大小",
+                    "size_kb": st.column_config.NumberColumn(
+                        "内存大小 (KB)", format="%d"
+                    ),
                     "size_bytes": st.column_config.NumberColumn("字节", format="%d"),
                 },
             )
     with right:
-        st.subheader("目录占用排行")
-        folder_rank = folders[folders["parent"] != ""].sort_values("size_bytes", ascending=False).head(12)
+        st.subheader("目录 / 包占用排行")
+        folder_rank = (
+            folders[folders["parent"] != ""]
+            .sort_values("size_bytes", ascending=False)
+            .head(12)
+        )
         st.dataframe(
-            folder_rank[["name", "path", "size_label", "children"]],
+            folder_rank[
+                ["name", "path", "kind", "cold_pages", "size_label", "children"]
+            ],
             use_container_width=True,
             hide_index=True,
-            column_config={"name": "目录", "path": "路径", "size_label": "累计大小", "children": "直接子项"},
+            column_config={
+                "name": "目录/包",
+                "path": "路径",
+                "kind": "类型",
+                "cold_pages": "冷页数",
+                "size_label": "累计大小",
+                "children": "直接子项",
+            },
         )
 
 
