@@ -1,4 +1,4 @@
-from tree_parser import flatten_tree, human_size, parse_size, parse_tree_text
+from tree_parser import flatten_tree, human_size, parse_module_csv_text, parse_size, parse_tree_text
 
 
 def test_parse_tree_text_rolls_up_folder_sizes():
@@ -77,3 +77,24 @@ def test_parse_ascii_plus_tree_with_actual_newlines():
     rows = {row["path"]: row for row in flatten_tree(root)}
 
     assert rows[r"D:\root/ets/common/icon.png"]["size_bytes"] == int(6.63 * 1024)
+
+
+def test_parse_module_csv_builds_module_package_class_hierarchy():
+    root = parse_module_csv_text(
+        '"module_offset","module_name","total_method_size"\n'
+        '"1323932","L&@hms-core/ml-base/src/main/ets/com/huawei/mlkit/Analyzer&0.0.1-569;","2282"\n'
+        '"1324429","L&@hms-core/ml-rpc/src/main/ets/com/huawei/mlkit/rpc/MLRpcCallbackStub&0.0.1-569;","5579"\n'
+        '"1328804","L&@ohos/aisuggestion/index&1.0.0;","0"\n'
+    )
+
+    rows = {row["path"]: row for row in flatten_tree(root)}
+
+    assert root.name == "modules"
+    assert rows["modules/@hms-core/ml-base/com/huawei/mlkit/Analyzer"]["kind"] == "Class"
+    assert rows["modules/@hms-core/ml-base/com/huawei/mlkit/Analyzer"]["size_bytes"] == 2282
+    assert rows["modules/@hms-core/ml-rpc/com/huawei/mlkit/rpc"]["kind"] == "Package"
+    assert rows["modules/@hms-core/ml-rpc/com/huawei/mlkit/rpc"]["size_bytes"] == 5579
+    assert rows["modules/@ohos/aisuggestion/index"]["kind"] == "Class"
+    assert rows["modules/@ohos/aisuggestion/index"]["module_offset"] == "1328804"
+    assert rows["modules/@hms-core/ml-base"]["kind"] == "Module"
+    assert root.total_size() == 2282 + 5579

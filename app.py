@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from tree_parser import flatten_tree, human_size, parse_tree_text
+from tree_parser import flatten_tree, human_count, human_size, parse_module_csv_text, parse_tree_text
 
 
 SAMPLE_TREE = """project_root/
@@ -35,11 +35,36 @@ SAMPLE_TREE = """project_root/
 """
 
 
+SAMPLE_MODULE_CSV = '''"module_offset","module_name","total_method_size"
+"1323932","L&@hms-core/ml-base/src/main/ets/com/huawei/mlkit/Analyzer&0.0.1-569;","2282"
+"1324429","L&@hms-core/ml-rpc/src/main/ets/com/huawei/mlkit/rpc/MLRpcCallbackStub&0.0.1-569;","5579"
+"1325241","L&@hms-core/ml-rpc/src/main/ets/com/huawei/mlkit/rpc/PictureSequence&0.0.1-569;","278"
+"1325553","L&@hms-core/ml-rpc/src/main/ets/com/huawei/mlkit/rpc/PixelMapSequence&0.0.1-569;","278"
+"1325866","L&@hms-core/ml-rpc/src/main/ets/com/huawei/mlkit/rpc/RpcConstant&0.0.1-569;","7808"
+"1326396","L&@hms-core/ml-utils/src/main/ets/com/huawei/mlkit/util/SmartLog&0.0.1-569;","564"
+"1326834","L&@hms-core/ml-utils/src/main/ets/com/huawei/mlkit/util/TextUtils&0.0.1-569;","585"
+"1327246","L&@ohos/airplanecomponent/src/main/ets/default/common/Constants&1.0.0;","117"
+"1327629","L&@ohos/airplanecomponent/src/main/ets/default/controller/AirplaneController&1.0.0;","3436"
+"1328804","L&@ohos/aisuggestion/index&1.0.0;","0"
+"1328955","L&@ohos/aisuggestion/src/main/ets/default/animation/AiSuggestionAnimHelper&1.0.0;","1871"
+"1329345","L&@ohos/aisuggestion/src/main/ets/default/bean/AiSuggestionComponentData&1.0.0;","1190"
+"1329576","L&@ohos/aisuggestion/src/main/ets/default/bean/AiSuggestionReportParams&1.0.0;","1369"
+"1330103","L&@ohos/aisuggestion/src/main/ets/default/bean/FormStackEventDonateInfo&1.0.0;","77"
+"1330333","L&@ohos/aisuggestion/src/main/ets/default/bean/InputComposedData&1.0.0;","190"
+"1330583","L&@ohos/aisuggestion/src/main/ets/default/bean/LauncherCardInfo&1.0.0;","1105"
+"1333116","L&@ohos/aisuggestion/src/main/ets/default/command/BaseCommand&1.0.0;","452"
+"1333471","L&@ohos/aisuggestion/src/main/ets/default/command/CommandConsumer&1.0.0;","2150"
+"1334298","L&@ohos/aisuggestion/src/main/ets/default/command/CommandList&1.0.0;","3478"
+"1335341","L&@ohos/aisuggestion/src/main/ets/default/command/CommandValidator&1.0.0;","3105"
+"1336316","L&@ohos/aisuggestion/src/main/ets/default/command/imp/AddFormToFormStackCommand&1.0.0;","3520"
+'''
+
+
 def calculate_depth(path: str) -> int:
     return path.count("/")
 
 
-def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treemap:
+def build_treemap(rows: Iterable[dict[str, object]], max_depth: int, value_label_column: str = "size_label") -> px.treemap:
     df = pd.DataFrame(rows)
     df = df[df["size_bytes"] > 0].copy()
     if max_depth:
@@ -54,7 +79,7 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
         values="size_bytes",
         color="size_bytes",
         color_continuous_scale=["#D7F3FF", "#61C4F2", "#246BFE", "#11376D"],
-        custom_data=["path", "size_label", "kind", "children"],
+        custom_data=["path", value_label_column, "kind", "children"],
     )
     fig.update_traces(
         texttemplate="<b>%{label}</b><br>%{customdata[1]}",
@@ -115,8 +140,8 @@ def main() -> None:
     st.markdown(
         """
         <div class="hero-card">
-          <h1>🧊 WizTree 风格文件空间可视化</h1>
-          <p>粘贴文件夹树状文本和文件大小，立即生成可交互的磁盘占用块状图，快速定位大文件与热点目录。</p>
+          <h1>🧊 层级块状图可视化</h1>
+          <p>支持文件树磁盘占用，也支持 module_offset/module_name/total_method_size CSV，展示模块内部 package 与 class 的方法体大小层级。</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -124,35 +149,48 @@ def main() -> None:
 
     with st.sidebar:
         st.header("输入与显示")
+        input_mode = st.radio("输入类型", ["Module CSV", "文件树"], horizontal=True)
         use_sample = st.toggle("使用示例数据", value=True)
-        max_depth = st.slider("可视化层级深度", min_value=1, max_value=8, value=6)
-        st.caption("支持 `├── file  12 MB`、`file - 12 MB`、`file (12 MB)` 等格式。")
+        max_depth = st.slider("可视化层级深度", min_value=1, max_value=10, value=6)
+        if input_mode == "Module CSV":
+            st.caption("CSV 需包含 `module_offset`、`module_name`、`total_method_size` 三列。")
+        else:
+            st.caption("支持 `├── file  12 MB`、`file - 12 MB`、`file (12 MB)` 等格式。")
 
-    default_text = SAMPLE_TREE if use_sample else ""
-    tree_text = st.text_area(
-        "文件夹树状文本",
+    is_module_mode = input_mode == "Module CSV"
+    default_text = SAMPLE_MODULE_CSV if use_sample and is_module_mode else SAMPLE_TREE if use_sample else ""
+    input_text = st.text_area(
+        "Module CSV" if is_module_mode else "文件夹树状文本",
         value=default_text,
-        height=300,
-        placeholder="粘贴 tree 命令输出，例如：\nroot/\n├── data/\n│   └── cache.db  128 MB\n└── README.md  24 KB",
+        height=330,
+        placeholder=(
+            '"module_offset","module_name","total_method_size"\n'
+            '"1323932","L&@hms-core/ml-base/src/main/ets/com/huawei/mlkit/Analyzer&0.0.1-569;","2282"'
+            if is_module_mode
+            else "粘贴 tree 命令输出，例如：\nroot/\n├── data/\n│   └── cache.db  128 MB\n└── README.md  24 KB"
+        ),
     )
 
-    if not tree_text.strip():
-        st.info("请在上方输入文件夹树状文本，或打开侧边栏中的示例数据。")
+    if not input_text.strip():
+        st.info("请在上方输入数据，或打开侧边栏中的示例数据。")
         return
 
-    root = parse_tree_text(tree_text)
+    root = parse_module_csv_text(input_text) if is_module_mode else parse_tree_text(input_text)
     rows = flatten_tree(root)
     data = pd.DataFrame(rows)
-    files = data[data["kind"] == "File"].copy()
-    folders = data[data["kind"] == "Folder"].copy()
+    leaf_kind = "Class" if is_module_mode else "File"
+    group_kinds = ["Module", "Package"] if is_module_mode else ["Folder"]
+    leaves = data[data["kind"] == leaf_kind].copy()
+    groups = data[data["kind"].isin(group_kinds)].copy()
     total_size = int(root.total_size())
+    value_label_column = "method_size_label" if is_module_mode else "size_label"
 
     metric_cols = st.columns(4)
     metric_values = [
-        ("总占用", human_size(total_size), "当前输入树的累计文件大小"),
-        ("文件数", f"{len(files):,}", "含大小的叶子节点"),
-        ("文件夹数", f"{max(len(folders) - 1, 0):,}", "不含虚拟根节点"),
-        ("最大文件", files.sort_values("size_bytes", ascending=False).iloc[0]["size_label"] if not files.empty else "0 B", "单个文件峰值"),
+        ("总方法大小" if is_module_mode else "总占用", human_count(total_size, "") if is_module_mode else human_size(total_size), "total_method_size 汇总" if is_module_mode else "当前输入树的累计文件大小"),
+        ("Class 数" if is_module_mode else "文件数", f"{len(leaves):,}", "CSV 中的 class 叶子节点" if is_module_mode else "含大小的叶子节点"),
+        ("Module 数" if is_module_mode else "文件夹数", f"{data[data['kind'] == 'Module']['name'].nunique():,}" if is_module_mode else f"{max(len(groups) - 1, 0):,}", "按 @scope/module 聚合" if is_module_mode else "不含虚拟根节点"),
+        ("最大 Class" if is_module_mode else "最大文件", leaves.sort_values("size_bytes", ascending=False).iloc[0][value_label_column] if not leaves.empty else "0", "单个 class total_method_size 峰值" if is_module_mode else "单个文件峰值"),
     ]
     for col, (label, value, help_text) in zip(metric_cols, metric_values):
         with col:
@@ -161,35 +199,43 @@ def main() -> None:
                 unsafe_allow_html=True,
             )
 
-    st.subheader("文件块状图")
-    st.plotly_chart(build_treemap(rows, max_depth), use_container_width=True, config={"displaylogo": False})
+    st.subheader("Module / Package / Class 块状图" if is_module_mode else "文件块状图")
+    chart_rows = [row for row in rows if int(row["size_bytes"]) > 0 or row["path"] == root.path]
+    if total_size <= 0:
+        st.warning("所有 total_method_size 都为 0，无法按面积绘制块状图。" if is_module_mode else "所有文件大小都为 0，无法按面积绘制块状图。")
+    else:
+        st.plotly_chart(build_treemap(chart_rows, max_depth, value_label_column), use_container_width=True, config={"displaylogo": False})
 
     left, right = st.columns([1.1, 0.9])
     with left:
-        st.subheader("Top 大文件")
-        if files.empty:
-            st.warning("没有解析到带 size 的文件。请检查输入格式。")
+        st.subheader("Top Class" if is_module_mode else "Top 大文件")
+        if leaves.empty:
+            st.warning("没有解析到 class。请检查 CSV 表头与 module_name 格式。" if is_module_mode else "没有解析到带 size 的文件。请检查输入格式。")
         else:
-            top_files = files.sort_values("size_bytes", ascending=False).head(20)
+            top_leaves = leaves.sort_values("size_bytes", ascending=False).head(20)
+            columns = ["name", "path", value_label_column, "size_bytes"]
+            if is_module_mode:
+                columns.append("module_offset")
             st.dataframe(
-                top_files[["name", "path", "size_label", "size_bytes"]],
+                top_leaves[columns],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "name": "文件名",
-                    "path": "路径",
-                    "size_label": "大小",
-                    "size_bytes": st.column_config.NumberColumn("字节", format="%d"),
+                    "name": "Class" if is_module_mode else "文件名",
+                    "path": "层级路径" if is_module_mode else "路径",
+                    value_label_column: "方法大小" if is_module_mode else "大小",
+                    "size_bytes": st.column_config.NumberColumn("total_method_size" if is_module_mode else "字节", format="%d"),
+                    "module_offset": "module_offset",
                 },
             )
     with right:
-        st.subheader("目录占用排行")
-        folder_rank = folders[folders["parent"] != ""].sort_values("size_bytes", ascending=False).head(12)
+        st.subheader("Package / Module 排行" if is_module_mode else "目录占用排行")
+        group_rank = groups[groups["parent"] != ""].sort_values("size_bytes", ascending=False).head(12)
         st.dataframe(
-            folder_rank[["name", "path", "size_label", "children"]],
+            group_rank[["name", "path", value_label_column, "children"]],
             use_container_width=True,
             hide_index=True,
-            column_config={"name": "目录", "path": "路径", "size_label": "累计大小", "children": "直接子项"},
+            column_config={"name": "Package/Module" if is_module_mode else "目录", "path": "路径", value_label_column: "累计方法大小" if is_module_mode else "累计大小", "children": "直接子项"},
         )
 
 
