@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from typing import Iterable
 
 import pandas as pd
@@ -76,6 +77,40 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
         height=680,
     )
     return fig
+
+
+def build_export_html(fig: object, title: str = "WizTree 文件块状图") -> str:
+    """Build a standalone HTML export that keeps Plotly treemap interactions."""
+    chart_html = fig.to_html(
+        full_html=True,
+        include_plotlyjs=True,
+        config={"displaylogo": False, "responsive": True},
+    )
+    return chart_html.replace(
+        "<head>",
+        (
+            "<head>"
+            f"<title>{escape(title)}</title>"
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            "<style>"
+            "body{margin:0;background:#F8FAFC;font-family:Arial,Helvetica,sans-serif;}"
+            ".export-header{padding:18px 24px;background:linear-gradient(135deg,#102A68,#1D4ED8 55%,#38BDF8);color:white;}"
+            ".export-header h1{margin:0;font-size:24px;}"
+            ".export-header p{margin:6px 0 0;color:#DBEAFE;}"
+            ".plotly-graph-div{height:calc(100vh - 92px) !important;}"
+            "</style>"
+        ),
+        1,
+    ).replace(
+        "<body>",
+        (
+            '<body><div class="export-header">'
+            "<h1>🧊 WizTree 文件块状图</h1>"
+            "<p>单击块可展开/聚焦目录，双击或点击路径可返回上级视图。</p>"
+            "</div>"
+        ),
+        1,
+    )
 
 
 def render_styles() -> None:
@@ -189,7 +224,17 @@ def main() -> None:
             )
 
     st.subheader("文件块状图")
-    st.plotly_chart(build_treemap(rows, max_depth), use_container_width=True, config={"displaylogo": False})
+    treemap_fig = build_treemap(rows, max_depth)
+    st.plotly_chart(
+        treemap_fig, use_container_width=True, config={"displaylogo": False}
+    )
+    st.download_button(
+        "⬇️ 导出块状图 HTML",
+        data=build_export_html(treemap_fig),
+        file_name="fscache_treemap.html",
+        mime="text/html",
+        help="导出的 HTML 内置 Plotly，可离线打开并保留单击块展开/聚焦的交互。",
+    )
 
     left, right = st.columns([1.1, 0.9])
     with left:
