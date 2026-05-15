@@ -79,7 +79,7 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
     return fig
 
 
-def build_export_html(fig: object, title: str = "WizTree 文件块状图") -> str:
+def build_export_html(fig: object, title: str = "大桌面未访问文件页溯源分析") -> str:
     """Build a standalone HTML export that keeps Plotly treemap interactions."""
     chart_html = fig.to_html(
         full_html=True,
@@ -105,7 +105,7 @@ def build_export_html(fig: object, title: str = "WizTree 文件块状图") -> st
         "<body>",
         (
             '<body><div class="export-header">'
-            "<h1>🧊 WizTree 文件块状图</h1>"
+            "<h1>🧊 大桌面未访问文件页溯源分析</h1>"
             "<p>单击块可展开/聚焦目录，双击或点击路径可返回上级视图。</p>"
             "</div>"
         ),
@@ -145,13 +145,13 @@ def render_styles() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="WizTree 文件块状图", page_icon="🧊", layout="wide")
+    st.set_page_config(page_title="大桌面未访问文件页溯源分析", page_icon="🧊", layout="wide")
     render_styles()
 
     st.markdown(
         """
         <div class="hero-card">
-          <h1>🧊 WizTree 风格文件空间可视化</h1>
+          <h1>🧊 大桌面未访问文件页溯源分析</h1>
           <p>粘贴文件夹树状文本和文件大小，立即生成可交互的磁盘占用块状图，快速定位大文件与热点目录。</p>
         </div>
         """,

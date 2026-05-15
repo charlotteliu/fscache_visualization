@@ -18,5 +18,6 @@ def test_export_html_is_standalone_and_keeps_treemap_interactions():
     assert "<html>" in html
     assert "plotly.js" in html
     assert "treemap" in html
+    assert "大桌面未访问文件页溯源分析" in html
     assert "单击块可展开/聚焦目录" in html
     assert "cache.db" in html
