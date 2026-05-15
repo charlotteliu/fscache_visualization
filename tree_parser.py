@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from csv import DictReader, reader
 from dataclasses import dataclass, field
+from io import StringIO
 from typing import Iterable
 
 
@@ -30,6 +32,7 @@ class TreeNode:
     name: str
     path: str
     explicit_size: int | None = None
+    cold_pages: int | None = None
     children: list["TreeNode"] = field(default_factory=list)
     parent: "TreeNode | None" = None
 
@@ -38,9 +41,9 @@ class TreeNode:
         return not self.children and self.explicit_size is not None
 
     def total_size(self) -> int:
-        if self.children:
-            return sum(child.total_size() for child in self.children)
-        return self.explicit_size or 0
+        if self.explicit_size is not None:
+            return self.explicit_size
+        return sum(child.total_size() for child in self.children)
 
 
 def parse_size(value: str | None, unit: str | None) -> int | None:
@@ -51,6 +54,15 @@ def parse_size(value: str | None, unit: str | None) -> int | None:
     if multiplier is None:
         return None
     return int(float(value.replace(",", "")) * multiplier)
+
+
+def parse_integer(value: str | None) -> int | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return int(float(stripped.replace(",", "")))
 
 
 def normalize_tree_text(text: str) -> str:
@@ -122,7 +134,107 @@ def split_name_and_size(content: str) -> tuple[str, int | None]:
     return content.strip(), None
 
 
+def _normalize_header(value: str) -> str:
+    return value.strip().lstrip("\ufeff").lower().replace(" ", "")
+
+
+def _csv_column(fieldnames: list[str], candidates: set[str]) -> str | None:
+    for fieldname in fieldnames:
+        if _normalize_header(fieldname) in candidates:
+            return fieldname
+    return None
+
+
+def is_cold_page_csv_text(text: str) -> bool:
+    """Return True when text looks like the cold-page CSV export format."""
+    for line in normalize_tree_text(text).splitlines():
+        if not line.strip():
+            continue
+        columns = next(reader(StringIO(line)), [])
+        normalized = {_normalize_header(column) for column in columns}
+        return bool(
+            {"名称", "name"} & normalized
+            and ({"冷页数", "coldpages"} & normalized)
+            and ({"内存大小(kb)", "memorysize(kb)", "size(kb)"} & normalized)
+        )
+    return False
+
+
+def _csv_name_to_segments(name: str) -> list[str]:
+    """Split file-path plus optional code-package suffix into hierarchy segments."""
+    path_part, separator, package_part = name.strip().partition(":")
+    path_segments = [segment for segment in path_part.strip("/").split("/") if segment]
+    if not path_segments and path_part.strip():
+        path_segments = [path_part.strip()]
+
+    package_segments: list[str] = []
+    if separator:
+        package_segments = [segment for segment in package_part.split(".") if segment]
+
+    return path_segments + package_segments
+
+
+def parse_cold_page_csv_text(text: str, root_name: str = "SceneBoard.hap") -> TreeNode:
+    """Parse cold-page CSV rows into a tree.
+
+    The CSV format uses a file path in the first column, optionally followed by a
+    colon and dot-separated package hierarchy, for example
+    ``ets/modules.abc:ohos.launchercommon.src``.
+    """
+    normalized_text = normalize_tree_text(text)
+    reader = DictReader(StringIO(normalized_text))
+    fieldnames = reader.fieldnames or []
+    name_column = _csv_column(fieldnames, {"名称", "name"})
+    pages_column = _csv_column(fieldnames, {"冷页数", "coldpages"})
+    size_column = _csv_column(
+        fieldnames, {"内存大小(kb)", "memorysize(kb)", "size(kb)"}
+    )
+    if not (name_column and pages_column and size_column):
+        raise ValueError("CSV 缺少 名称、冷页数 或 内存大小 (KB) 列。")
+
+    root = TreeNode(root_name, root_name)
+    nodes: dict[str, TreeNode] = {root.path: root}
+    seen_rows: set[tuple[str, int | None, int | None]] = set()
+
+    for row in reader:
+        raw_name = (row.get(name_column) or "").strip()
+        if not raw_name or _normalize_header(raw_name) in {"名称", "name"}:
+            continue
+
+        size_kb = parse_integer(row.get(size_column))
+        cold_pages = parse_integer(row.get(pages_column))
+        size_bytes = size_kb * 1024 if size_kb is not None else None
+        row_identity = (raw_name, cold_pages, size_bytes)
+        if row_identity in seen_rows:
+            continue
+        seen_rows.add(row_identity)
+
+        segments = _csv_name_to_segments(raw_name)
+        if not segments:
+            continue
+
+        parent = root
+        for segment in segments:
+            path = f"{parent.path}/{segment}"
+            node = nodes.get(path)
+            if node is None:
+                node = TreeNode(segment, path, parent=parent)
+                parent.children.append(node)
+                nodes[path] = node
+            parent = node
+
+        if parent.explicit_size is None:
+            parent.explicit_size = size_bytes
+        if parent.cold_pages is None:
+            parent.cold_pages = cold_pages
+
+    return root
+
+
 def parse_tree_text(text: str) -> TreeNode:
+    if is_cold_page_csv_text(text):
+        return parse_cold_page_csv_text(text)
+
     root = TreeNode("root", "")
     stack: list[TreeNode] = [root]
 
@@ -177,6 +289,7 @@ def flatten_tree(node: TreeNode) -> list[dict[str, object]]:
                 "size_label": human_size(total),
                 "kind": "File" if current.is_file else "Folder",
                 "children": len(current.children),
+                "cold_pages": current.cold_pages,
             }
         )
         for child in current.children:
