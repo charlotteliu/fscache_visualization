@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
@@ -42,6 +43,13 @@ def calculate_depth(path: str) -> int:
 
 def format_cold_pages(value: float) -> str:
     return f"{int(value):,}" if float(value).is_integer() else f"{value:,.3f}"
+
+
+def load_default_tree_text() -> str:
+    data_file = Path("data.csv")
+    if data_file.exists():
+        return data_file.read_text(encoding="utf-8")
+    return SAMPLE_TREE
 
 
 def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treemap:
@@ -164,14 +172,14 @@ def main() -> None:
 
     with st.sidebar:
         st.header("输入与显示")
-        use_sample = st.toggle("使用示例数据", value=True)
+        use_sample = st.toggle("使用默认数据", value=True)
         max_depth = st.slider("可视化层级深度", min_value=1, max_value=30, value=12)
         st.caption(
             "支持 tree 文本，以及 `名称,冷页数,内存大小 (KB)` 冷页 CSV；"
             "CSV 名称列可包含 `path:pkg.subpkg` 代码包层级。"
         )
 
-    default_text = SAMPLE_TREE if use_sample else ""
+    default_text = load_default_tree_text() if use_sample else ""
     tree_text = st.text_area(
         "文件夹树状文本或冷页 CSV",
         value=default_text,
