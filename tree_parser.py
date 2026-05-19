@@ -32,7 +32,7 @@ class TreeNode:
     name: str
     path: str
     explicit_size: int | None = None
-    cold_pages: int | None = None
+    cold_pages: float | None = None
     children: list["TreeNode"] = field(default_factory=list)
     parent: "TreeNode | None" = None
 
@@ -56,13 +56,13 @@ def parse_size(value: str | None, unit: str | None) -> int | None:
     return int(float(value.replace(",", "")) * multiplier)
 
 
-def parse_integer(value: str | None) -> int | None:
+def parse_number(value: str | None) -> float | None:
     if value is None:
         return None
     stripped = value.strip()
     if not stripped:
         return None
-    return int(float(stripped.replace(",", "")))
+    return float(stripped.replace(",", ""))
 
 
 def normalize_tree_text(text: str) -> str:
@@ -201,9 +201,11 @@ def parse_cold_page_csv_text(text: str, root_name: str = "SceneBoard.hap") -> Tr
         if not raw_name or _normalize_header(raw_name) in {"名称", "name"}:
             continue
 
-        size_kb = parse_integer(row.get(size_column))
-        cold_pages = parse_integer(row.get(pages_column))
-        size_bytes = size_kb * 1024 if size_kb is not None else None
+        size_kb = parse_number(row.get(size_column))
+        cold_pages = parse_number(row.get(pages_column))
+        size_bytes = int(round(size_kb * 1024)) if size_kb is not None else None
+        if size_kb and size_bytes == 0:
+            size_bytes = 1
         row_identity = (raw_name, cold_pages, size_bytes)
         if row_identity in seen_rows:
             continue

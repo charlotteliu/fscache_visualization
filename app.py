@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
@@ -37,6 +39,17 @@ SAMPLE_TREE = """project_root/
 
 def calculate_depth(path: str) -> int:
     return path.count("/")
+
+
+def format_cold_pages(value: float) -> str:
+    return f"{int(value):,}" if float(value).is_integer() else f"{value:,.3f}"
+
+
+def load_default_tree_text() -> str:
+    data_file = Path("data.csv")
+    if data_file.exists():
+        return data_file.read_text(encoding="utf-8")
+    return SAMPLE_TREE
 
 
 def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treemap:
@@ -78,6 +91,40 @@ def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treem
     return fig
 
 
+def build_export_html(fig: object, title: str = "大桌面未访问文件页溯源分析") -> str:
+    """Build a standalone HTML export that keeps Plotly treemap interactions."""
+    chart_html = fig.to_html(
+        full_html=True,
+        include_plotlyjs=True,
+        config={"displaylogo": False, "responsive": True},
+    )
+    return chart_html.replace(
+        "<head>",
+        (
+            "<head>"
+            f"<title>{escape(title)}</title>"
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            "<style>"
+            "body{margin:0;background:#F8FAFC;font-family:Arial,Helvetica,sans-serif;}"
+            ".export-header{padding:18px 24px;background:linear-gradient(135deg,#102A68,#1D4ED8 55%,#38BDF8);color:white;}"
+            ".export-header h1{margin:0;font-size:24px;}"
+            ".export-header p{margin:6px 0 0;color:#DBEAFE;}"
+            ".plotly-graph-div{height:calc(100vh - 92px) !important;}"
+            "</style>"
+        ),
+        1,
+    ).replace(
+        "<body>",
+        (
+            '<body><div class="export-header">'
+            "<h1>🧊 大桌面未访问文件页溯源分析</h1>"
+            "<p>单击块可展开/聚焦目录，双击或点击路径可返回上级视图。</p>"
+            "</div>"
+        ),
+        1,
+    )
+
+
 def render_styles() -> None:
     st.markdown(
         """
@@ -110,13 +157,13 @@ def render_styles() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="WizTree 文件块状图", page_icon="🧊", layout="wide")
+    st.set_page_config(page_title="大桌面未访问文件页溯源分析", page_icon="🧊", layout="wide")
     render_styles()
 
     st.markdown(
         """
         <div class="hero-card">
-          <h1>🧊 WizTree 风格文件空间可视化</h1>
+          <h1>🧊 大桌面未访问文件页溯源分析</h1>
           <p>粘贴文件夹树状文本和文件大小，立即生成可交互的磁盘占用块状图，快速定位大文件与热点目录。</p>
         </div>
         """,
@@ -125,14 +172,14 @@ def main() -> None:
 
     with st.sidebar:
         st.header("输入与显示")
-        use_sample = st.toggle("使用示例数据", value=True)
-        max_depth = st.slider("可视化层级深度", min_value=1, max_value=8, value=6)
+        use_sample = st.toggle("使用默认数据", value=True)
+        max_depth = st.slider("可视化层级深度", min_value=1, max_value=30, value=12)
         st.caption(
             "支持 tree 文本，以及 `名称,冷页数,内存大小 (KB)` 冷页 CSV；"
             "CSV 名称列可包含 `path:pkg.subpkg` 代码包层级。"
         )
 
-    default_text = SAMPLE_TREE if use_sample else ""
+    default_text = load_default_tree_text() if use_sample else ""
     tree_text = st.text_area(
         "文件夹树状文本或冷页 CSV",
         value=default_text,
@@ -177,7 +224,7 @@ def main() -> None:
             1,
             (
                 "总冷页",
-                f"{int(root.cold_pages or top_level_cold_pages.sum()):,}",
+                format_cold_pages(float(root.cold_pages or top_level_cold_pages.sum())),
                 "CSV 输入中的冷页数",
             ),
         )
@@ -189,7 +236,17 @@ def main() -> None:
             )
 
     st.subheader("文件块状图")
-    st.plotly_chart(build_treemap(rows, max_depth), use_container_width=True, config={"displaylogo": False})
+    treemap_fig = build_treemap(rows, max_depth)
+    st.plotly_chart(
+        treemap_fig, use_container_width=True, config={"displaylogo": False}
+    )
+    st.download_button(
+        "⬇️ 导出块状图 HTML",
+        data=build_export_html(treemap_fig),
+        file_name="fscache_treemap.html",
+        mime="text/html",
+        help="导出的 HTML 内置 Plotly，可离线打开并保留单击块展开/聚焦的交互。",
+    )
 
     left, right = st.columns([1.1, 0.9])
     with left:
