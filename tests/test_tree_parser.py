@@ -116,3 +116,20 @@ ets/modules.abc:ohos.launchercommon.src,475,1900
     ] == 1900 * 1024
     assert rows["SceneBoard.hap/pkgContextInfo.json/other"]["size_bytes"] == 4 * 1024
     assert rows["SceneBoard.hap/resources.index/other"]["size_bytes"] == 720 * 1024
+
+
+def test_parse_cold_page_csv_keeps_deep_class_hierarchy_and_fractional_kb():
+    root = parse_tree_text(
+        """名称,冷页数,内存大小(KB)
+ets/modules.abc:hms-ai.pdkfull.src.main.ets.utils.log.HiAiLog,0.111328125,0.4453125
+"""
+    )
+
+    rows = {row["path"]: row for row in flatten_tree(root)}
+    leaf_path = (
+        "SceneBoard.hap/ets/modules.abc/hms-ai/pdkfull/src/main/ets/utils/log/HiAiLog"
+    )
+
+    assert leaf_path in rows
+    assert rows[leaf_path]["size_bytes"] == 456
+    assert rows[leaf_path]["cold_pages"] == 0.111328125

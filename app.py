@@ -40,6 +40,10 @@ def calculate_depth(path: str) -> int:
     return path.count("/")
 
 
+def format_cold_pages(value: float) -> str:
+    return f"{int(value):,}" if float(value).is_integer() else f"{value:,.3f}"
+
+
 def build_treemap(rows: Iterable[dict[str, object]], max_depth: int) -> px.treemap:
     df = pd.DataFrame(rows)
     df = df[df["size_bytes"] > 0].copy()
@@ -161,7 +165,7 @@ def main() -> None:
     with st.sidebar:
         st.header("输入与显示")
         use_sample = st.toggle("使用示例数据", value=True)
-        max_depth = st.slider("可视化层级深度", min_value=1, max_value=8, value=6)
+        max_depth = st.slider("可视化层级深度", min_value=1, max_value=30, value=12)
         st.caption(
             "支持 tree 文本，以及 `名称,冷页数,内存大小 (KB)` 冷页 CSV；"
             "CSV 名称列可包含 `path:pkg.subpkg` 代码包层级。"
@@ -212,7 +216,7 @@ def main() -> None:
             1,
             (
                 "总冷页",
-                f"{int(root.cold_pages or top_level_cold_pages.sum()):,}",
+                format_cold_pages(float(root.cold_pages or top_level_cold_pages.sum())),
                 "CSV 输入中的冷页数",
             ),
         )
