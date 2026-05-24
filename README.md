@@ -1,12 +1,33 @@
 # FSCACHE Visualization
 
-A Streamlit app that turns folder tree text with file sizes into a WizTree-style interactive treemap.
+A private Streamlit app that turns folder tree text or cold-page CSV exports into a WizTree-style interactive treemap.
+
+The app is designed for local, private analysis:
+
+- Streamlit usage statistics are disabled in `.streamlit/config.toml`.
+- The server binds to `localhost` by default.
+- Exported treemap HTML files embed Plotly assets and can be opened offline.
+- Input data is parsed in the local Python process and is not sent to a remote service by this app.
 
 ## Run locally
 
+If `uv` is not on your `PATH`, use `python3 -m uv` in the commands below.
+
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+uv sync
+uv run streamlit run app.py
+```
+
+For an internal LAN deployment, override the server address explicitly:
+
+```bash
+uv run streamlit run app.py --server.address 0.0.0.0
+```
+
+Run tests with:
+
+```bash
+uv run pytest
 ```
 
 ## Supported input examples
