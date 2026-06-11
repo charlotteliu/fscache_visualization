@@ -72,3 +72,15 @@ def test_s3fifo_visualization_accessibility_and_responsive_styles():
     assert "prefers-reduced-motion" in styles
     assert "overflow-x: auto" in styles
     assert "min-width: 72px" in styles
+
+
+def test_s3fifo_visualization_uses_academic_figure_style():
+    html = (VISUALIZATION_DIR / "index.html").read_text(encoding="utf-8")
+    styles = (VISUALIZATION_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert "Interactive Figure" in html
+    assert "Figure 1." in html
+    assert "paper-figure" in html
+    assert 'font-family: "Times New Roman", Times, Georgia, serif' in styles
+    assert "box-shadow: none" in styles
+    assert "border-left: 4px solid var(--queue-color)" in styles

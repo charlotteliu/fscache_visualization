@@ -51,3 +51,13 @@ test('accessibility requirements are covered statically', () => {
   assert.match(js, /keydown/);
   assert.match(js, /status-text-hit/);
 });
+
+
+test('visual treatment stays paper-like rather than product-page styled', () => {
+  assert.match(html, /Interactive Figure/);
+  assert.match(html, /Figure 1\./);
+  assert.match(html, /paper-figure/);
+  assert.match(css, /font-family: "Times New Roman", Times, Georgia, serif/);
+  assert.match(css, /box-shadow: none/);
+  assert.match(css, /border-left: 4px solid var\(--queue-color\)/);
+});

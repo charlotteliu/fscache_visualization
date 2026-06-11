@@ -9,16 +9,17 @@
   <body>
     <main class="page-shell">
       <header class="hero" aria-labelledby="page-title">
-        <p class="eyebrow">S3-FIFO visual simulator</p>
+        <p class="figure-label">Interactive Figure</p>
         <h1 id="page-title">How does S3-FIFO work?</h1>
         <p class="subtitle">
-          A clean, step-by-step visualization of the three FIFO queues used by S3-FIFO:
-          Small FIFO for filtering, Main FIFO for reusable objects, and Ghost FIFO for
-          remembered evictions.
+          A paper-style schematic of the S3-FIFO cache replacement policy. The visualization
+          emphasizes the algorithmic state—request stream, FIFO heads/tails, object frequency,
+          and ghost metadata—rather than decorative web UI.
         </p>
+        <p class="figure-caption">Figure 1. Small FIFO filters one-hit objects, Main FIFO stores reusable objects, and Ghost FIFO records recently evicted keys.</p>
       </header>
 
-      <section class="trace-panel" aria-labelledby="trace-title">
+      <section class="trace-panel paper-panel" aria-labelledby="trace-title">
         <div>
           <h2 id="trace-title">Request Stream</h2>
           <p class="panel-copy">Enter keys separated by commas, spaces, or new lines. Editing the trace rebuilds the simulation without starting playback.</p>
@@ -29,7 +30,7 @@
         <div id="request-stream" class="request-stream" aria-label="Upcoming request stream"></div>
       </section>
 
-      <section class="controls" aria-label="Simulation controls">
+      <section class="controls paper-panel" aria-label="Simulation controls">
         <div class="button-grid">
           <button id="play-button" type="button" aria-label="Play simulation">Play</button>
           <button id="pause-button" type="button" aria-label="Pause simulation">Pause</button>
@@ -64,7 +65,7 @@
         </div>
       </section>
 
-      <section class="metrics" aria-label="Simulation metrics" aria-live="polite">
+      <section class="metrics paper-panel" aria-label="Simulation metrics" aria-live="polite">
         <article><span id="metric-total">0</span><small>Total Requests</small></article>
         <article><span id="metric-hits">0</span><small>Hits</small></article>
         <article><span id="metric-misses">0</span><small>Misses</small></article>
@@ -75,7 +76,8 @@
         <article><span id="metric-current-event">Ready</span><small>Current Event</small></article>
       </section>
 
-      <section class="visualization" aria-label="S3-FIFO queue visualization">
+      <section class="visualization paper-figure" aria-label="S3-FIFO queue visualization">
+        <p class="figure-note">Algorithm state diagram. Items move left-to-right from FIFO tail to FIFO head.</p>
         <div id="motion-layer" class="motion-layer" aria-hidden="true"></div>
         <article class="queue-row small-row" data-queue="small">
           <header>
@@ -132,9 +134,9 @@
         </article>
       </section>
 
-      <section class="explanation" aria-labelledby="explanation-title">
+      <section class="explanation paper-panel" aria-labelledby="explanation-title">
         <div>
-          <p class="eyebrow">Step explanation</p>
+          <p class="figure-label">Step explanation</p>
           <h2 id="explanation-title">Current step</h2>
         </div>
         <p id="step-explanation">
