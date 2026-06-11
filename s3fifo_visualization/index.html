@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How does S3-FIFO work?</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="hero" aria-labelledby="page-title">
+        <p class="figure-label">Interactive Figure</p>
+        <h1 id="page-title">How does S3-FIFO work?</h1>
+        <p class="subtitle">
+          A paper-style schematic of the S3-FIFO cache replacement policy. The visualization
+          emphasizes the algorithmic state—request stream, FIFO heads/tails, object frequency,
+          and ghost metadata—rather than decorative web UI.
+        </p>
+        <p class="figure-caption">Figure 1. Small FIFO filters one-hit objects, Main FIFO stores reusable objects, and Ghost FIFO records recently evicted keys.</p>
+      </header>
+
+      <section class="trace-panel paper-panel" aria-labelledby="trace-title">
+        <div>
+          <h2 id="trace-title">Request Stream</h2>
+          <p class="panel-copy">Enter keys separated by commas, spaces, or new lines. Editing the trace rebuilds the simulation without starting playback.</p>
+        </div>
+        <label class="trace-input-label" for="trace-input">Trace input</label>
+        <textarea id="trace-input" spellcheck="false">A B C A D E A B F</textarea>
+        <p id="trace-error" class="trace-error" role="alert" aria-live="polite"></p>
+        <div id="request-stream" class="request-stream" aria-label="Upcoming request stream"></div>
+      </section>
+
+      <section class="controls paper-panel" aria-label="Simulation controls">
+        <div class="button-grid">
+          <button id="play-button" type="button" aria-label="Play simulation">Play</button>
+          <button id="pause-button" type="button" aria-label="Pause simulation">Pause</button>
+          <button id="step-button" type="button" aria-label="Advance one animation step">Step</button>
+          <button id="previous-button" type="button" aria-label="Go to previous animation step">Previous Step</button>
+          <button id="reset-button" type="button" aria-label="Reset simulation">Reset</button>
+          <button id="random-button" type="button" aria-label="Generate random trace">Random Trace</button>
+        </div>
+
+        <div class="settings-grid">
+          <label>Speed
+            <select id="speed-select" aria-label="Animation speed">
+              <option value="0.25">0.25x</option>
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+              <option value="4">4x</option>
+            </select>
+          </label>
+          <label>Cache Capacity
+            <input id="cache-capacity" type="number" min="2" max="40" value="10" aria-label="Cache capacity" />
+          </label>
+          <label>Small Queue Ratio
+            <input id="small-ratio" type="number" min="5" max="80" step="5" value="30" aria-label="Small queue ratio percentage" />
+          </label>
+          <label>Ghost Capacity
+            <input id="ghost-capacity" type="number" min="1" max="60" value="7" aria-label="Ghost capacity" />
+          </label>
+          <label>Frequency Cap
+            <input id="frequency-cap" type="number" min="1" max="15" value="3" aria-label="Frequency cap" />
+          </label>
+        </div>
+      </section>
+
+      <section class="metrics paper-panel" aria-label="Simulation metrics" aria-live="polite">
+        <article><span id="metric-total">0</span><small>Total Requests</small></article>
+        <article><span id="metric-hits">0</span><small>Hits</small></article>
+        <article><span id="metric-misses">0</span><small>Misses</small></article>
+        <article><span id="metric-hit-ratio">0%</span><small>Hit Ratio</small></article>
+        <article><span id="metric-evictions">0</span><small>Evictions</small></article>
+        <article><span id="metric-ghost-hits">0</span><small>Ghost Hits</small></article>
+        <article><span id="metric-current-request">—</span><small>Current Request</small></article>
+        <article><span id="metric-current-event">Ready</span><small>Current Event</small></article>
+      </section>
+
+      <section class="visualization paper-figure" aria-label="S3-FIFO queue visualization">
+        <p class="figure-note">Algorithm state diagram. Items move left-to-right from FIFO tail to FIFO head.</p>
+        <div id="motion-layer" class="motion-layer" aria-hidden="true"></div>
+        <article class="queue-row small-row" data-queue="small">
+          <header>
+            <div>
+              <p class="queue-kicker">filter queue</p>
+              <h2>Small FIFO</h2>
+            </div>
+            <span id="small-capacity" class="capacity-label">0 / 3</span>
+          </header>
+          <div class="direction-line" aria-hidden="true">
+            <span>enqueue tail</span><b>→</b><span>dequeue head</span>
+          </div>
+          <div class="queue-shell">
+            <span class="tail-label">FIFO Tail / In</span>
+            <div id="small-queue" class="queue-lane" aria-label="Small FIFO objects"></div>
+            <span class="head-label">FIFO Head / Out</span>
+          </div>
+        </article>
+
+        <article class="queue-row main-row" data-queue="main">
+          <header>
+            <div>
+              <p class="queue-kicker">resident cache</p>
+              <h2>Main FIFO</h2>
+            </div>
+            <span id="main-capacity" class="capacity-label">0 / 7</span>
+          </header>
+          <div class="direction-line" aria-hidden="true">
+            <span>enqueue tail</span><b>→</b><span>dequeue head</span>
+          </div>
+          <div class="queue-shell">
+            <span class="tail-label">FIFO Tail / In</span>
+            <div id="main-queue" class="queue-lane" aria-label="Main FIFO objects"></div>
+            <span class="head-label">FIFO Head / Out</span>
+          </div>
+        </article>
+
+        <article class="queue-row ghost-row" data-queue="ghost">
+          <header>
+            <div>
+              <p class="queue-kicker">metadata history</p>
+              <h2>Ghost FIFO</h2>
+            </div>
+            <span id="ghost-capacity-label" class="capacity-label">0 / 7</span>
+          </header>
+          <div class="direction-line" aria-hidden="true">
+            <span>enqueue tail</span><b>→</b><span>dequeue head</span>
+          </div>
+          <div class="queue-shell">
+            <span class="tail-label">FIFO Tail / In</span>
+            <div id="ghost-queue" class="queue-lane ghost-lane" aria-label="Ghost FIFO objects"></div>
+            <span class="head-label">FIFO Head / Out</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="explanation paper-panel" aria-labelledby="explanation-title">
+        <div>
+          <p class="figure-label">Step explanation</p>
+          <h2 id="explanation-title">Current step</h2>
+        </div>
+        <p id="step-explanation">
+          Press Step to pull the next request from the stream and observe one animation event at a time.
+        </p>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>

@@ -37,3 +37,15 @@ ets/modules.abc:ohos,4361,17444
 ets/modules.abc:ohos.launchercommon,475,1900
 ets/modules.abc:ohos.launchercommon.src,475,1900
 ```
+
+## S3-FIFO visualization
+
+A standalone recreation of the “How does S3-FIFO work?” visualization is available in `s3fifo_visualization/`. Open `s3fifo_visualization/index.html` in a browser to step through the small FIFO (S), main FIFO (M), and ghost FIFO (G) queues interactively.
+
+The static visualization also has lightweight Node-based checks:
+
+```bash
+npm run build
+npm test
+npm run smoke:playwright
+```
