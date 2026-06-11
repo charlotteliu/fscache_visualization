@@ -11,18 +11,64 @@ def test_s3fifo_visualization_static_assets_exist_and_are_linked():
     assert "How does S3-FIFO work?" in html
     assert 'href="styles.css"' in html
     assert 'src="script.js"' in html
-    assert "Small FIFO · S" in html
-    assert "Main FIFO · M" in html
-    assert "Ghost FIFO · G" in html
+    assert "Small FIFO" in html
+    assert "Main FIFO" in html
+    assert "Ghost FIFO" in html
+    assert "FIFO Tail / In" in html
+    assert "FIFO Head / Out" in html
 
 
-def test_s3fifo_visualization_script_models_three_static_queues():
+def test_s3fifo_visualization_exposes_required_controls_and_metrics():
+    html = (VISUALIZATION_DIR / "index.html").read_text(encoding="utf-8")
+
+    for label in [
+        "Play",
+        "Pause",
+        "Step",
+        "Previous Step",
+        "Reset",
+        "Random Trace",
+        "Cache Capacity",
+        "Small Queue Ratio",
+        "Ghost Capacity",
+        "Frequency Cap",
+    ]:
+        assert label in html
+
+    for metric in [
+        "Total Requests",
+        "Hits",
+        "Misses",
+        "Hit Ratio",
+        "Evictions",
+        "Ghost Hits",
+        "Current Request",
+        "Current Event",
+    ]:
+        assert metric in html
+
+
+def test_s3fifo_visualization_script_models_stepwise_animation_safely():
     script = (VISUALIZATION_DIR / "script.js").read_text(encoding="utf-8")
 
-    assert "small: 3" in script
-    assert "main: 7" in script
-    assert "ghost: 7" in script
-    assert "drainSmall" in script
-    assert "drainMain" in script
-    assert "pushGhost" in script
-    assert "Math.min(3" in script
+    assert "planRequest" in script
+    assert "previousStep" in script
+    assert "state.isAnimating" in script
+    assert "lockDuringAnimation" in script
+    assert "smallToMain" in script
+    assert "smallToGhost" in script
+    assert "mainReinsert" in script
+    assert "ghostHit" in script
+    assert "Trace must contain at least one request key" in script
+
+
+def test_s3fifo_visualization_accessibility_and_responsive_styles():
+    html = (VISUALIZATION_DIR / "index.html").read_text(encoding="utf-8")
+    styles = (VISUALIZATION_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert 'aria-label="Play simulation"' in html
+    assert 'aria-label="Pause simulation"' in html
+    assert 'aria-label="Advance one animation step"' in html
+    assert "prefers-reduced-motion" in styles
+    assert "overflow-x: auto" in styles
+    assert "min-width: 72px" in styles

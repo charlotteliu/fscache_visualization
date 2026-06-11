@@ -7,112 +7,139 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="hero" aria-labelledby="page-title">
+    <main class="page-shell">
+      <header class="hero" aria-labelledby="page-title">
+        <p class="eyebrow">S3-FIFO visual simulator</p>
+        <h1 id="page-title">How does S3-FIFO work?</h1>
+        <p class="subtitle">
+          A clean, step-by-step visualization of the three FIFO queues used by S3-FIFO:
+          Small FIFO for filtering, Main FIFO for reusable objects, and Ghost FIFO for
+          remembered evictions.
+        </p>
+      </header>
+
+      <section class="trace-panel" aria-labelledby="trace-title">
         <div>
-          <p class="eyebrow">S3-FIFO visualization</p>
-          <h1 id="page-title">How does S3-FIFO work?</h1>
-          <p class="subtitle">
-            <strong>S</strong>imple and <strong>S</strong>calable caching with three
-            <strong>S</strong>tatic FIFO queues: a small filter queue, a main cache queue,
-            and a ghost queue that remembers recent evictions.
-          </p>
+          <h2 id="trace-title">Request Stream</h2>
+          <p class="panel-copy">Enter keys separated by commas, spaces, or new lines. Editing the trace rebuilds the simulation without starting playback.</p>
         </div>
-        <div class="legend" aria-label="Legend">
-          <span><i class="dot dot-small"></i>Small FIFO (S)</span>
-          <span><i class="dot dot-main"></i>Main FIFO (M)</span>
-          <span><i class="dot dot-ghost"></i>Ghost FIFO (G)</span>
-        </div>
+        <label class="trace-input-label" for="trace-input">Trace input</label>
+        <textarea id="trace-input" spellcheck="false">A B C A D E A B F</textarea>
+        <p id="trace-error" class="trace-error" role="alert" aria-live="polite"></p>
+        <div id="request-stream" class="request-stream" aria-label="Upcoming request stream"></div>
       </section>
 
       <section class="controls" aria-label="Simulation controls">
-        <div class="request-card">
-          <label for="request-input">Request object</label>
-          <div class="request-row">
-            <input id="request-input" maxlength="2" value="A" aria-describedby="request-help" />
-            <button id="request-button" type="button">Access</button>
+        <div class="button-grid">
+          <button id="play-button" type="button" aria-label="Play simulation">Play</button>
+          <button id="pause-button" type="button" aria-label="Pause simulation">Pause</button>
+          <button id="step-button" type="button" aria-label="Advance one animation step">Step</button>
+          <button id="previous-button" type="button" aria-label="Go to previous animation step">Previous Step</button>
+          <button id="reset-button" type="button" aria-label="Reset simulation">Reset</button>
+          <button id="random-button" type="button" aria-label="Generate random trace">Random Trace</button>
+        </div>
+
+        <div class="settings-grid">
+          <label>Speed
+            <select id="speed-select" aria-label="Animation speed">
+              <option value="0.25">0.25x</option>
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+              <option value="4">4x</option>
+            </select>
+          </label>
+          <label>Cache Capacity
+            <input id="cache-capacity" type="number" min="2" max="40" value="10" aria-label="Cache capacity" />
+          </label>
+          <label>Small Queue Ratio
+            <input id="small-ratio" type="number" min="5" max="80" step="5" value="30" aria-label="Small queue ratio percentage" />
+          </label>
+          <label>Ghost Capacity
+            <input id="ghost-capacity" type="number" min="1" max="60" value="7" aria-label="Ghost capacity" />
+          </label>
+          <label>Frequency Cap
+            <input id="frequency-cap" type="number" min="1" max="15" value="3" aria-label="Frequency cap" />
+          </label>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="Simulation metrics" aria-live="polite">
+        <article><span id="metric-total">0</span><small>Total Requests</small></article>
+        <article><span id="metric-hits">0</span><small>Hits</small></article>
+        <article><span id="metric-misses">0</span><small>Misses</small></article>
+        <article><span id="metric-hit-ratio">0%</span><small>Hit Ratio</small></article>
+        <article><span id="metric-evictions">0</span><small>Evictions</small></article>
+        <article><span id="metric-ghost-hits">0</span><small>Ghost Hits</small></article>
+        <article><span id="metric-current-request">—</span><small>Current Request</small></article>
+        <article><span id="metric-current-event">Ready</span><small>Current Event</small></article>
+      </section>
+
+      <section class="visualization" aria-label="S3-FIFO queue visualization">
+        <div id="motion-layer" class="motion-layer" aria-hidden="true"></div>
+        <article class="queue-row small-row" data-queue="small">
+          <header>
+            <div>
+              <p class="queue-kicker">filter queue</p>
+              <h2>Small FIFO</h2>
+            </div>
+            <span id="small-capacity" class="capacity-label">0 / 3</span>
+          </header>
+          <div class="direction-line" aria-hidden="true">
+            <span>enqueue tail</span><b>→</b><span>dequeue head</span>
           </div>
-          <p id="request-help">Type a key or use the trace buttons below. Hits raise the two-bit counter up to 3.</p>
-        </div>
-        <div class="trace-card">
-          <p class="trace-title">Demo trace</p>
-          <div id="trace-buttons" class="trace-buttons" aria-label="Demo trace buttons"></div>
-          <div class="control-buttons">
-            <button id="step-button" type="button">Step trace</button>
-            <button id="auto-button" type="button">Auto play</button>
-            <button id="reset-button" type="button">Reset</button>
+          <div class="queue-shell">
+            <span class="tail-label">FIFO Tail / In</span>
+            <div id="small-queue" class="queue-lane" aria-label="Small FIFO objects"></div>
+            <span class="head-label">FIFO Head / Out</span>
           </div>
+        </article>
+
+        <article class="queue-row main-row" data-queue="main">
+          <header>
+            <div>
+              <p class="queue-kicker">resident cache</p>
+              <h2>Main FIFO</h2>
+            </div>
+            <span id="main-capacity" class="capacity-label">0 / 7</span>
+          </header>
+          <div class="direction-line" aria-hidden="true">
+            <span>enqueue tail</span><b>→</b><span>dequeue head</span>
+          </div>
+          <div class="queue-shell">
+            <span class="tail-label">FIFO Tail / In</span>
+            <div id="main-queue" class="queue-lane" aria-label="Main FIFO objects"></div>
+            <span class="head-label">FIFO Head / Out</span>
+          </div>
+        </article>
+
+        <article class="queue-row ghost-row" data-queue="ghost">
+          <header>
+            <div>
+              <p class="queue-kicker">metadata history</p>
+              <h2>Ghost FIFO</h2>
+            </div>
+            <span id="ghost-capacity-label" class="capacity-label">0 / 7</span>
+          </header>
+          <div class="direction-line" aria-hidden="true">
+            <span>enqueue tail</span><b>→</b><span>dequeue head</span>
+          </div>
+          <div class="queue-shell">
+            <span class="tail-label">FIFO Tail / In</span>
+            <div id="ghost-queue" class="queue-lane ghost-lane" aria-label="Ghost FIFO objects"></div>
+            <span class="head-label">FIFO Head / Out</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="explanation" aria-labelledby="explanation-title">
+        <div>
+          <p class="eyebrow">Step explanation</p>
+          <h2 id="explanation-title">Current step</h2>
         </div>
-        <div class="stats" aria-live="polite">
-          <div><span id="hits">0</span><small>hits</small></div>
-          <div><span id="misses">0</span><small>misses</small></div>
-          <div><span id="hit-rate">0%</span><small>hit rate</small></div>
-        </div>
-      </section>
-
-      <section class="board" aria-label="S3-FIFO queues">
-        <article class="queue-card small" data-queue="small">
-          <header>
-            <div>
-              <p class="queue-kicker">10% cache</p>
-              <h2>Small FIFO · S</h2>
-            </div>
-            <span id="small-count" class="capacity">0 / 3</span>
-          </header>
-          <p class="queue-copy">New objects enter here first. One-hit wonders are quickly demoted before they pollute the main cache.</p>
-          <div class="flow-label"><span>newest</span><span>oldest</span></div>
-          <div id="small-queue" class="queue-lane" aria-label="Small FIFO queue"></div>
-        </article>
-
-        <article class="queue-card main" data-queue="main">
-          <header>
-            <div>
-              <p class="queue-kicker">90% cache</p>
-              <h2>Main FIFO · M</h2>
-            </div>
-            <span id="main-count" class="capacity">0 / 7</span>
-          </header>
-          <p class="queue-copy">Objects with reuse are promoted here. On eviction, recently accessed objects are reinserted with a lower counter.</p>
-          <div class="flow-label"><span>newest</span><span>oldest</span></div>
-          <div id="main-queue" class="queue-lane" aria-label="Main FIFO queue"></div>
-        </article>
-
-        <article class="queue-card ghost" data-queue="ghost">
-          <header>
-            <div>
-              <p class="queue-kicker">metadata only</p>
-              <h2>Ghost FIFO · G</h2>
-            </div>
-            <span id="ghost-count" class="capacity">0 / 7</span>
-          </header>
-          <p class="queue-copy">Stores keys, not data. A future request found here skips S and goes directly into M.</p>
-          <div class="flow-label"><span>newest</span><span>oldest</span></div>
-          <div id="ghost-queue" class="queue-lane ghost-lane" aria-label="Ghost FIFO queue"></div>
-        </article>
-      </section>
-
-      <section class="explain" aria-label="Algorithm explanation">
-        <article>
-          <h3>1. Cache hit</h3>
-          <p>If an object is in S or M, S3-FIFO increments its small access counter. No LRU-style list promotion is required.</p>
-        </article>
-        <article>
-          <h3>2. New miss</h3>
-          <p>If the key is not remembered by G, it is inserted into S. When S is full, cold entries are moved to G.</p>
-        </article>
-        <article>
-          <h3>3. Ghost miss</h3>
-          <p>If the key appears in G, S3-FIFO treats it as a likely reusable object and inserts it into M.</p>
-        </article>
-        <article>
-          <h3>4. Main eviction</h3>
-          <p>M evicts in FIFO order; touched entries get one more chance by reinsertion with a decremented counter.</p>
-        </article>
-      </section>
-
-      <section class="event-log" aria-labelledby="log-title">
-        <h2 id="log-title">Event log</h2>
-        <ol id="log"></ol>
+        <p id="step-explanation">
+          Press Step to pull the next request from the stream and observe one animation event at a time.
+        </p>
       </section>
     </main>
 
